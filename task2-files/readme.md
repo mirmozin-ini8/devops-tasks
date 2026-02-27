@@ -652,6 +652,234 @@ Azure Virtual Networks do not use real Layer 2 networking. Azure's SDN (Software
 
 MetalLB in L2 mode works by having its speaker pod send gratuitous ARP announcements to claim ownership of the virtual IP (`10.0.0.10`), telling the network "send traffic for this IP to my MAC address." On Azure, these announcements are silently discarded by the hypervisor. The virtual IP `10.0.0.10` therefore has no actual routing backing it, so packets destined for it are dropped.
 
+### Task 4A: Set Up Port Forwarding For Ingress
+
+#### Overview
+
+Since MetalLB L2 mode is incompatible with Azure VNet, the Ingress Controller cannot receive a publicly routable IP directly. Instead, the Jump Server acts as a public entry point, forwarding traffic to the private MetalLB IP using `kubectl port-forward`.
+
+#### Verify the Ingress Controller has a MetalLB IP
+
+```bash
+kubectl get svc -n ingress-nginx
+```
+
+Expected output - `EXTERNAL-IP` should show a private IP from your MetalLB pool (e.g., `10.0.0.10`):
+
+```
+NAME                       TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)
+ingress-nginx-controller   LoadBalancer   10.105.136.229   10.0.0.10     80:30662/TCP,443:32613/TCP
+```
+
+#### Create a Systemd Service for Persistent Port Forwarding
+
+First, copy the kubeconfig to root's home directory so the service can authenticate:
+
+```bash
+sudo mkdir -p /root/.kube
+sudo cp ~/.kube/config /root/.kube/config
+```
+
+Create the service file:
+
+```bash
+sudo nano /etc/systemd/system/k8s-portforward.service
+```
+
+Paste the following:
+
+```ini
+[Unit]
+Description=Kubernetes port-forward for ingress controller (80/443)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=KUBECONFIG=/root/.kube/config
+ExecStart=/usr/local/bin/kubectl port-forward svc/ingress-nginx-controller -n ingress-nginx 80:80 443:443 --address 0.0.0.0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable k8s-portforward.service
+sudo systemctl start k8s-portforward.service
+```
+
+#### Clear `iptables` DNAT Rules
+
+If `iptables DNAT` was previously used to forward traffic, those rules will intercept traffic before it reaches port-forward, causing requests to go directly to the unreachable MetalLB IP.
+
+Check for conflicting DNAT rules: 
+
+```bash
+sudo iptables -t nat -L PREROUTING -n -v
+```
+
+If you see a rule like this, it must be removed:
+
+```
+DNAT  tcp  --  eth0  *  0.0.0.0/0  0.0.0.0/0  tcp dpt:80 to:10.0.0.10:80
+```
+
+Remove all PREROUTING rules:
+
+```bash
+sudo iptables -t nat -F PREROUTING
+```
+
+### Verify 
+
+```bash
+sudo systemctl status k8s-portforward.service
+sudo ss -tlnp | grep :80
+curl http://simple-api.ddns.net
+```
+
+Expected output from the last command: `Basic API Server`.
+
+---
+
+### Task 5: Configure SSL with `cert-manager`
+
+Configuring automatic TLS certificates for the Kubernetes cluster using cert-manager and Let's Encrypt. The HTTP-01 ACME challenge is used for domain validation, which works over standard HTTP port 80.
+
+#### Install Cert-Manager
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
+```
+
+Wait until all cert-manager pods are `Running` before proceeding:
+
+```bash
+kubectl get pods -n cert-manager -w
+```
+
+Expected Output:
+
+![cert-manager-pods.png](./screenshots/cert-manager-pods.png)
+
+#### Create the ClusterIssuer
+
+It tells cert-manager how to request certificates form Ler's Encrypt using the HTTP-01 challenge.
+
+Create `clusterissuer.yaml`:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    email: your@email.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+```
+
+Apply it:
+
+```bash
+kubectl apply -f clusterissuer.yaml
+```
+
+Verify it is ready:
+
+```bash
+kubectl describe clusterissuer letsencrypt-prod
+```
+
+The message should show `The ACME account was registered with the ACME server`.
+
+#### Configure the Helm Chart `values.yaml`
+
+The ingress must have three things for TLS to work correctly:
+
+1. The `cert-manager.io/cluster-issuer` annotation to trigger certificate creation.
+2. The `nginx.ingress.kubernetes.io/ssl-redirect: "false"` annotation to allow the HTTP-01 challenge through without being redirected to HTTPS.
+3. A `tls` section referencing the secret where the certificate will be stored.
+
+Edit `simple-api-chart/values.yaml` and update the ingress section:
+
+```yaml
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: simple-api.ddns.net
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - simple-api.ddns.net
+      secretName: simple-api-tls
+```
+
+Apply the changes:
+
+```bash
+helm upgrade simple-api ./simple-api-chart
+```
+
+#### Verify Certificate Issuance
+
+Watch the certificate become ready:
+
+```bash
+kubectl get certificate -n default -w
+```
+
+Expected final state:
+
+```
+NAME             READY   SECRET           AGE
+simple-api-tls   True    simple-api-tls   2m
+```
+
+Describe it for full details:
+
+```bash
+kubectl describe certificate simple-api-tls -n default
+```
+
+Look for:
+
+```
+Message: Certificate is up to date and has not expired
+Status:  True
+Type:    Ready
+```
+
+#### Verify HTTPS
+
+```bash
+curl https://simple-api.ddns.net
+```
+
+Expected output: `Basic API Server`.
+
+![https-verification.png](./screenshots/https-verification.png)
+
+---
+
 #### Troubleshooting MetalLB 
 
 If the external IP remains pending, check speaker pod logs:
