@@ -979,6 +979,9 @@ jobs:
           EOF
           chmod +x deploy.sh
 
+      - name: debug deploy script
+        run: cat deploy.sh
+
       - name: copy helm chart to jump server
         env:
           JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
