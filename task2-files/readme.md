@@ -965,23 +965,18 @@ jobs:
       - name: copy helm chart to jump server
         run: |
           ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
-          scp -r ./task1-files/simple-api-chart \
-            ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:/home/${{ secrets.JUMP_SERVER_USER }}/
+          scp -r ./task1-files/simple-api-chart ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/simple-api-chart
 
-      - name: deploy via helm 
+      - name: deploy via helm
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-          "helm upgrade --install simple-api /home/${{ secrets.JUMP_SERVER_USER }}/simple-api-chart \
-          --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
-          --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
-          --set image.pullPolicy=Always \
-          --namespace default \
-          --wait"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} "helm upgrade --install simple-api ~/simple-api-chart --reuse-values --set image.repository=${DOCKER_USER}/simple-api-server --set image.tag=${IMAGE_TAG} --set image.pullPolicy=Always --namespace default --wait"
 
       - name: verify rollout
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-          "/usr/local/bin/kubectl rollout status deployment/simple-api-simple-api-chart -n default"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
 ```
 
 The workflow is triggered in two ways. First, automatically on every push to the main branch that includes changes inside the task2-files directory. Second, manually from the GitHub Actions tab using the workflow_dispatch trigger.

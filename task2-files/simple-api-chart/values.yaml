@@ -64,10 +64,10 @@ ingress:
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
-    - host: simple-api.local
+    - host: simple-api.ddns.net
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []
     # - secretName: chart-example-tls
     #   hosts:
