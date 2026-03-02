@@ -58,12 +58,11 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
           "helm upgrade --install simple-api /home/${{ secrets.JUMP_SERVER_USER }}/simple-api-chart \
-          --reuse-values \
-          --set image.repository='${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server' \
-          --set image.tag='${{ needs.build-and-push.outputs.image-tag }}' \
-          --set image.pullPolicy=Always \
-          --namespace default \
-          --wait"
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
+            --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
+            --set image.pullPolicy=Always \
+            --namespace default \
+            --wait"
 
       - name: verify rollout
         run: |
