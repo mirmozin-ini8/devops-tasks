@@ -882,6 +882,150 @@ Expected output: `Basic API Server`.
 
 ### Task 6: Create CI/CD Pipeline with GitHub Actions
 
+Implement an automated deployment pipeline using GitHub Actions that builds a Docker image on code push, pushes it to DockerHub, and deploys it to the Kubernetes cluster via Helm.
+
+#### Configure GitHub Repository Secrets
+
+Navigate to the GitHub repository, then go to Settings, Secrets and variables, Actions, and add the following secrets.
+
+| Secret Name | Description |
+| --- | --- |
+| DOCKERHUB_USERNAME | DockerHub account username |
+| DOCKERHUB_TOKEN | DockerHub personal access token |
+| JUMP_SERVER_IP | Public IP address of the jump server |
+| JUMP_SERVER_USER | SSH username for the jump server |
+| JUMP_SERVER_SSH_KEY | Private SSH key used to access the jump server |
+
+To generate a DockerHub access token, log in to hub.docker.com, go to Account Settings, then Personal Access Tokens, and create a new token with read and write permissions.
+
+#### Create the GitHub Actions Workflow File
+
+Create the following directory structure inside the repository:
+
+```bash
+.github/
+  workflows/
+    <workflow-file-name>.yml
+```
+
+Create the file at .github/workflows/deploy.yml with the required content. Example `deploy.yaml`:
+
+
+```YAML
+name: github-actions-cicd
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'task2-files/**'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: build and push docker image
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.vars.outputs.sha }}
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v3
+
+      - name: set-image-tag
+        id: vars
+        run: echo "sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: login to docker hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: build docker image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server:${{ steps.vars.outputs.sha }} ./task2-files
+
+      - name: push docker image
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server:${{ steps.vars.outputs.sha }}
+
+  deploy:
+    name: deploy to kubernetes
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v3
+
+      - name: setup ssh key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.JUMP_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: copy helm chart to jump server
+        run: |
+          scp -r ./task2-files/simple-api-chart ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/simple-api-chart
+
+      - name: deploy via helm
+        run: |
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            "helm upgrade --install simple-api ~/simple-api-chart \
+            --namespace default \
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
+            --set image.tag=${{ needs.build-and-deploy.outputs.image-tag }} \
+            --wait"
+
+      - name: verify rollout
+        run: |
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
+```
+
+The workflow is triggered in two ways. First, automatically on every push to the main branch that includes changes inside the task2-files directory. Second, manually from the GitHub Actions tab using the workflow_dispatch trigger.
+
+The pipeline is divided into two jobs:
+
+1. build-and-deploy
+
+This job runs on a GitHub-hosted Ubuntu runner. It checks out the repository code, generates a short 7-character Git SHA to use as the Docker image tag, logs into DockerHub using the stored secrets, builds the Docker image from the task2-files directory, and pushes the image to DockerHub. The image tag is passed as an output to the second job.
+
+2. deploy
+
+This job runs after the first job `build-and-deploy` completes successfully. It checks out the code, configures the SSH private key to allow access to the jump server, copies the Helm chart from the repository to the jump server using SCP, then SSHes into the jump server and runs the Helm upgrade command with the new image tag set via the --set flag. Finally, it verifies that the Kubernetes deployment rolled out successfully.
+
+#### Push the Workflow File
+
+```bash
+git add .github/workflows/deploy.
+git commit -m "add cicd pipeline with github-actions"
+git push origin main
+```
+
+Since the commit does not include changes inside task2-files, the pipeline will not trigger automatically from this push. To trigger it manually, go to the GitHub repository, click the Actions tab, select the workflow named github-actions-cicd, and click Run workflow.
+
+#### Verify the Pipeline
+
+After the pipeline runs, verify the deployment from the jump server:
+
+```bash
+kubectl get pods -n default
+kubectl get deployment simple-api-simple-api-chart -n default
+```
+
+To confirm the new image tag was applied:
+
+```bash
+kubectl describe deployment simple-api-simple-api-chart -n default | grep Image
+```
+
+The image shown should match the DockerHub image with the Git SHA tag that was built during the pipeline run.
+
+The Kubernetes cluster nodes are on private VMs with no public IP. GitHub Actions runners are cloud-hosted and cannot reach the cluster directly. To solve this, the pipeline SSHes into the jump server, which already has kubectl and Helm configured with access to the private cluster. All Helm and kubectl commands are executed remotely on the jump server rather than on the GitHub Actions runner itself.
+
 ---
 
 #### Troubleshooting MetalLB 
