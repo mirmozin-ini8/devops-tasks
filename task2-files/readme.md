@@ -921,7 +921,7 @@ on:
 
 jobs:
   build-and-push:
-    name: Build and Push Docker Image
+    name: build and push docker Image
     runs-on: ubuntu-latest
     outputs:
       image-tag: ${{ steps.vars.outputs.sha }}
@@ -943,12 +943,12 @@ jobs:
       - name: build and push docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./task2-files
+          context: ./task1-files
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server:${{ steps.vars.outputs.sha }}
 
   deploy:
-    name: Deploy to Kubernetes
+    name: deploy to kubernetes
     runs-on: ubuntu-latest
     needs: build-and-push
 
@@ -975,6 +975,11 @@ jobs:
             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
             --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
             --wait"
+
+      - name: verify rollout
+        run: |
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
 ```
 
 The workflow is triggered in two ways. First, automatically on every push to the main branch that includes changes inside the task2-files directory. Second, manually from the GitHub Actions tab using the workflow_dispatch trigger.

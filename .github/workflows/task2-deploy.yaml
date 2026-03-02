@@ -61,3 +61,8 @@ jobs:
             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
             --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
             --wait"
+
+      - name: verify rollout
+        run: |
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
