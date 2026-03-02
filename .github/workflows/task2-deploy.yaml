@@ -51,7 +51,7 @@ jobs:
       - name: copy helm chart to jump server
         run: |
           ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
-          scp -r ./task1-files/simple-api-chart ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/simple-api-chart
+          scp -r ./task2-files/simple-api-chart ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/
 
       - name: deploy via helm
         env:
