@@ -880,6 +880,10 @@ Expected output: `Basic API Server`.
 
 ---
 
+### Task 6: Create CI/CD Pipeline with GitHub Actions
+
+---
+
 #### Troubleshooting MetalLB 
 
 If the external IP remains pending, check speaker pod logs:
