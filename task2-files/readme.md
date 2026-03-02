@@ -973,15 +973,14 @@ jobs:
           JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
           JUMP_HOST: ${{ secrets.JUMP_SERVER_IP }}
         run: |
-          ssh -o StrictHostKeyChecking=no ${JUMP_USER}@${JUMP_HOST} \
-            "helm upgrade --install simple-api ~/simple-api-chart \
-            --reuse-values \
+          ssh -o StrictHostKeyChecking=no ${JUMP_USER}@${JUMP_HOST} << 'ENDSSH'
+          helm upgrade --install simple-api ~/simple-api-chart \
             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
             --set image.tag=${IMAGE_TAG} \
             --set image.pullPolicy=Always \
             --namespace default \
-            --timeout 10m \
-            --wait"
+            --wait
+          ENDSSH
 
       - name: verify rollout
         env:
