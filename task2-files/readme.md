@@ -917,7 +917,7 @@ name: github-actions-cicd
 on:
   push:
     branches: [main]
-    paths: ['task2-files/**']
+    paths: ['task2-files/**', 'task1-files/**']
   workflow_dispatch:
 
 jobs:
@@ -944,7 +944,7 @@ jobs:
       - name: build and push docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./task1-files
+          context: ./task1-files 
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server:${{ steps.vars.outputs.sha }}
 
@@ -962,47 +962,29 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.JUMP_SERVER_SSH_KEY }}
 
-      - name: write deploy script
+      - name: copy helm chart to jump server
+        run: |
+          ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
+          scp -r ./task1-files/simple-api-chart ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/simple-api-chart
+
+      - name: deploy via helm
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          cat > deploy.sh << EOF
-          #!/bin/bash
-          helm upgrade --install simple-api ~/simple-api-chart \
-            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
-            --set image.tag=${IMAGE_TAG} \
-            --set image.pullPolicy=Always \
+          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} "
+            helm upgrade --install simple-api ~/simple-api-chart \
+            --reuse-values \
+            --set image.repository=\"${DOCKER_USER}/simple-api-server\" \
+            --set image.tag=\"${IMAGE_TAG}\" \
+            --set image.pullPolicy=\"Always\" \
             --namespace default \
-            --timeout 10m \
-            --wait
-          kubectl rollout status deployment/simple-api-simple-api-chart -n default
-          EOF
-          chmod +x deploy.sh
+            --wait"
 
-      - name: debug deploy script
-        run: cat deploy.sh
-
-      - name: copy helm chart to jump server
-        env:
-          JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
-          JUMP_HOST: ${{ secrets.JUMP_SERVER_IP }}
+      - name: verify rollout
         run: |
-          scp -o StrictHostKeyChecking=no -r ./task2-files/simple-api-chart \
-            ${JUMP_USER}@${JUMP_HOST}:~/simple-api-chart
-
-      - name: copy deploy script to jump server
-        env:
-          JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
-          JUMP_HOST: ${{ secrets.JUMP_SERVER_IP }}
-        run: |
-          scp -o StrictHostKeyChecking=no deploy.sh ${JUMP_USER}@${JUMP_HOST}:~/deploy.sh
-
-      - name: execute deploy script
-        env:
-          JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
-          JUMP_HOST: ${{ secrets.JUMP_SERVER_IP }}
-        run: |
-          ssh -o StrictHostKeyChecking=no ${JUMP_USER}@${JUMP_HOST} "bash ~/deploy.sh"
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
 ```
 
 The workflow is triggered in two ways. First, automatically on every push to the main branch that includes changes inside the task2-files directory. Second, manually from the GitHub Actions tab using the workflow_dispatch trigger.
