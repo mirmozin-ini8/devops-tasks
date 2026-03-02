@@ -56,20 +56,18 @@ jobs:
       - name: deploy via helm
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
           JUMP_HOST: ${{ secrets.JUMP_SERVER_IP }}
         run: |
-          ssh -o StrictHostKeyChecking=no ${JUMP_USER}@${JUMP_HOST} "
-            helm upgrade --install simple-api ~/simple-api-chart \
-              --reuse-values \
-              --set image.repository=${DOCKERHUB_USERNAME}/simple-api-server \
-              --set image.tag=${IMAGE_TAG} \
-              --set image.pullPolicy=Always \
-              --namespace default \
-              --timeout 10m \
-              --wait
-          "
+          ssh -o StrictHostKeyChecking=no ${JUMP_USER}@${JUMP_HOST} \
+            "helm upgrade --install simple-api ~/simple-api-chart \
+            --reuse-values \
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
+            --set image.tag=${IMAGE_TAG} \
+            --set image.pullPolicy=Always \
+            --namespace default \
+            --timeout 10m \
+            --wait"
 
       - name: verify rollout
         env:
