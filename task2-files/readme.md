@@ -972,7 +972,7 @@ jobs:
           ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
             "helm upgrade --install simple-api ~/simple-api-chart \
             --namespace default \
-            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
+            --set image.repository='${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server' \
             --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
             --wait"
 
