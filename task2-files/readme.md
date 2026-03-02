@@ -972,19 +972,12 @@ jobs:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-          "helm upgrade --install simple-api ~/simple-api-chart \
-          --reuse-values \
-          --set image.repository=\"${DOCKER_USER}/simple-api-server\" \
-          --set image.tag=\"${IMAGE_TAG}\" \
-          --set image.pullPolicy=\"Always\" \
-          --namespace default \
-          --wait"
+          # We use a single-line string for the SSH command to eliminate indentation whitespace
+          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} "helm upgrade --install simple-api ~/simple-api-chart --reuse-values --set image.repository=${DOCKER_USER}/simple-api-server --set image.tag=${IMAGE_TAG} --set image.pullPolicy=Always --namespace default --wait"
 
       - name: verify rollout
         run: |
-          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-            "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
 ```
 
 The workflow is triggered in two ways. First, automatically on every push to the main branch that includes changes inside the task2-files directory. Second, manually from the GitHub Actions tab using the workflow_dispatch trigger.
