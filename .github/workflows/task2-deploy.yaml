@@ -4,28 +4,29 @@ on:
   push:
     branches: [main]
     paths: ['task2-files/**']
+  workflow_dispatch:
 
 jobs:
   build-and-push:
-    name: build and push docker Image
+    name: build and push docker image
     runs-on: ubuntu-latest
     outputs:
       image-tag: ${{ steps.vars.outputs.sha }}
-    
+
     steps:
       - name: checkout code
         uses: actions/checkout@v4
 
-      - name: set-image-tag
+      - name: set image tag
         id: vars
         run: echo "sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
-      - name: login to docker hub
+      - name: login to dockerhub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-        
+
       - name: build and push docker image
         uses: docker/build-push-action@v5
         with:
@@ -42,27 +43,38 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
 
-      - name: setup ssh key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.JUMP_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
+      - name: setup ssh agent
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.JUMP_SERVER_SSH_KEY }}
 
       - name: copy helm chart to jump server
-        run : |
-          scp -r ./task2-files/simple-api-chart ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/simple-api-chart
+        run: |
+          scp -o StrictHostKeyChecking=no -r ./task2-files/simple-api-chart \
+            ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/simple-api-chart
 
       - name: deploy via helm
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
+          JUMP_HOST: ${{ secrets.JUMP_SERVER_IP }}
         run: |
-          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-            "helm upgrade --install simple-api ~/simple-api-chart \
-            --namespace default \
-            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
-            --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
-            --wait"
+          ssh -o StrictHostKeyChecking=no ${JUMP_USER}@${JUMP_HOST} "
+            helm upgrade --install simple-api ~/simple-api-chart \
+              --reuse-values \
+              --set image.repository=${DOCKERHUB_USERNAME}/simple-api-server \
+              --set image.tag=${IMAGE_TAG} \
+              --set image.pullPolicy=Always \
+              --namespace default \
+              --timeout 10m \
+              --wait
+          "
 
       - name: verify rollout
+        env:
+          JUMP_USER: ${{ secrets.JUMP_SERVER_USER }}
+          JUMP_HOST: ${{ secrets.JUMP_SERVER_IP }}
         run: |
-          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+          ssh -o StrictHostKeyChecking=no ${JUMP_USER}@${JUMP_HOST} \
             "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
