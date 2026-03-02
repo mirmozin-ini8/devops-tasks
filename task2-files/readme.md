@@ -916,23 +916,19 @@ name: github-actions-cicd
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'task2-files/**'
-  workflow_dispatch:
+    branches: [main]
+    paths: ['task2-files/**']
 
 jobs:
-  build-and-deploy:
-    name: build and push docker image
+  build-and-push:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
-
     outputs:
       image-tag: ${{ steps.vars.outputs.sha }}
-
+    
     steps:
       - name: checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: set-image-tag
         id: vars
@@ -943,21 +939,22 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: build docker image
-        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server:${{ steps.vars.outputs.sha }} ./task2-files
-
-      - name: push docker image
-        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server:${{ steps.vars.outputs.sha }}
+        
+      - name: build and push docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./task2-files
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server:${{ steps.vars.outputs.sha }}
 
   deploy:
-    name: deploy to kubernetes
+    name: Deploy to Kubernetes
     runs-on: ubuntu-latest
-    needs: build-and-deploy
+    needs: build-and-push
 
     steps:
       - name: checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: setup ssh key
         run: |
@@ -967,7 +964,7 @@ jobs:
           ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
 
       - name: copy helm chart to jump server
-        run: |
+        run : |
           scp -r ./task2-files/simple-api-chart ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/simple-api-chart
 
       - name: deploy via helm
@@ -976,13 +973,8 @@ jobs:
             "helm upgrade --install simple-api ~/simple-api-chart \
             --namespace default \
             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/simple-api-server \
-            --set image.tag=${{ needs.build-and-deploy.outputs.image-tag }} \
+            --set image.tag=${{ needs.build-and-push.outputs.image-tag }} \
             --wait"
-
-      - name: verify rollout
-        run: |
-          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-            "kubectl rollout status deployment/simple-api-simple-api-chart -n default"
 ```
 
 The workflow is triggered in two ways. First, automatically on every push to the main branch that includes changes inside the task2-files directory. Second, manually from the GitHub Actions tab using the workflow_dispatch trigger.
