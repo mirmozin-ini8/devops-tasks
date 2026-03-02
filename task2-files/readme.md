@@ -968,7 +968,7 @@ jobs:
           scp -r ./task1-files/simple-api-chart \
             ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:/home/${{ secrets.JUMP_SERVER_USER }}/
 
-      - name: deploy via helm
+      - name: deploy via helm 
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
           "helm upgrade --install simple-api /home/${{ secrets.JUMP_SERVER_USER }}/simple-api-chart \
