@@ -983,13 +983,13 @@ The workflow is triggered in two ways. First, automatically on every push to the
 
 The pipeline is divided into two jobs:
 
-1. build-and-deploy
+1. build-and-push
 
-This job runs on a GitHub-hosted Ubuntu runner. It checks out the repository code, generates a short 7-character Git SHA to use as the Docker image tag, logs into DockerHub using the stored secrets, builds the Docker image from the task2-files directory, and pushes the image to DockerHub. The image tag is passed as an output to the second job.
+This job runs on a GitHub-hosted Ubuntu runner. It checks out the repository code, generates a short 7-character Git SHA to use as the Docker image tag, logs into DockerHub using the stored secrets, builds the Docker image from the task1-files directory, and pushes the image to DockerHub. The image tag is passed as an output to the second job.
 
 2. deploy
 
-This job runs after the first job `build-and-deploy` completes successfully. It checks out the code, configures the SSH private key to allow access to the jump server, copies the Helm chart from the repository to the jump server using SCP, then SSHes into the jump server and runs the Helm upgrade command with the new image tag set via the --set flag. Finally, it verifies that the Kubernetes deployment rolled out successfully.
+This job runs after the first job `build-and-push` completes successfully. It checks out the code, configures the SSH private key to allow access to the jump server, copies the Helm chart from the repository to the jump server using SCP, then SSHes into the jump server and runs the Helm upgrade command with the new image tag set via the --set flag. Finally, it verifies that the Kubernetes deployment rolled out successfully.
 
 #### Push the Workflow File
 

@@ -1,0 +1,72 @@
+services:
+  users_db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${USERS_DB_USER}
+      POSTGRES_PASSWORD: ${USERS_DB_PASSWORD}
+      POSTGRES_DB: ${USERS_DB_NAME}
+    ports:
+      - "${USERS_DB_PORT}:5432"
+    volumes:
+      - users_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  books_db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${BOOKS_DB_USER}
+      POSTGRES_PASSWORD: ${BOOKS_DB_PASSWORD}
+      POSTGRES_DB: ${BOOKS_DB_NAME}
+    ports:
+      - "${BOOKS_DB_PORT}:5432"
+    volumes:
+      - books_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  user-service:
+    build: ./user-service/
+    container_name: user-service
+    ports:
+      - "8081:${USERS_SERVER_PORT}"
+    environment:
+      USERS_DB_HOST: ${USERS_DB_HOST}
+      USERS_DB_PORT: 5432
+      USERS_DB_USER: ${USERS_DB_USER}
+      USERS_DB_PASSWORD: ${USERS_DB_PASSWORD}
+      USERS_DB_NAME: ${USERS_DB_NAME}
+      USERS_SERVER_PORT: ${USERS_SERVER_PORT}
+      SECRET_KEY: HEYBROTHER
+    depends_on:
+      users_db:
+        condition: service_healthy
+  book-service:
+    build: ./book-service
+    container_name: book-service
+    ports:
+      - "8080:${BOOKS_SERVER_PORT}"
+    environment:
+      BOOKS_DB_HOST: ${BOOKS_DB_HOST}
+      BOOKS_DB_PORT: 5432
+      BOOKS_DB_USER: ${BOOKS_DB_USER}
+      BOOKS_DB_PASSWORD: ${BOOKS_DB_PASSWORD}
+      BOOKS_DB_NAME: ${BOOKS_DB_NAME}
+      BOOKS_SERVER_PORT: ${BOOKS_SERVER_PORT}
+    depends_on:
+      books_db:
+        condition: service_healthy
+
+volumes:
+  books_db_data:
+  users_db_data:
+
+networks:
+  default:
+    driver: bridge
