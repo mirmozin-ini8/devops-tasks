@@ -1,3 +1,4 @@
+name: microservices-application
 services:
   users_db:
     image: postgres:13
@@ -31,6 +32,21 @@ services:
       timeout: 5s
       retries: 5
 
+  orders_db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${ORDERS_DB_USER}
+      POSTGRES_PASSWORD: ${ORDERS_DB_PASSWORD}
+      POSTGRES_DB: ${ORDERS_DB_NAME}
+    ports:
+      - "${ORDERS_DB_PORT}:5432"
+    volumes:
+      - orders_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
   user-service:
     build: ./user-service/
     container_name: user-service
@@ -43,7 +59,7 @@ services:
       USERS_DB_PASSWORD: ${USERS_DB_PASSWORD}
       USERS_DB_NAME: ${USERS_DB_NAME}
       USERS_SERVER_PORT: ${USERS_SERVER_PORT}
-      SECRET_KEY: HEYBROTHER
+      SECRET_KEY: ${SECRET_KEY}
     depends_on:
       users_db:
         condition: service_healthy
@@ -63,9 +79,33 @@ services:
       books_db:
         condition: service_healthy
 
+  order-service:
+    build: ./order-service/
+    container_name: order-service
+    ports:
+      - "8082:${ORDERS_SERVER_PORT}"
+    environment:
+      ORDERS_DB_HOST: ${ORDERS_DB_HOST}
+      ORDERS_DB_PORT: 5432
+      ORDERS_DB_USER: ${ORDERS_DB_USER}
+      ORDERS_DB_PASSWORD: ${ORDERS_DB_PASSWORD}
+      ORDERS_DB_NAME: ${ORDERS_DB_NAME}
+      ORDERS_SERVER_PORT: ${ORDERS_SERVER_PORT}
+      BOOK_SERVICE_URL: http://book-service:8080
+      USER_SERVICE_URL: http://user-service:8081
+      SECRET_KEY: ${SECRET_KEY}
+    depends_on:
+      orders_db:
+        condition: service_healthy
+      book-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+
 volumes:
   books_db_data:
   users_db_data:
+  orders_db_data:
 
 networks:
   default:

@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 
-RUN GGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o book-service .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o book-service .
 
 FROM alpine:3.23.3
 

@@ -1,8 +1,6 @@
-# Microservices Project — Technical Documentation
+# Microservices Deployment - Documentation
 
-## Overview
-
-This document covers the implementation of Components 1 and 2 of the microservices assignment: the development of `book-service` and `user-service`, along with their respective database configurations. Both services are written in Go using the Gin web framework and are backed by isolated PostgreSQL instances.
+This document covers the implementation of the microservices application: the development of `book-service`, `user-service`, and `order-service`, along with their respective database configurations, Dockerfiles, and Docker Compose setup. All three services are written in Go using the Gin web framework and are backed by isolated PostgreSQL instances.
 
 ---
 
@@ -16,6 +14,7 @@ This document covers the implementation of Components 1 and 2 of the microservic
 | Web Framework | Gin |
 | Database Driver | `lib/pq` (PostgreSQL) |
 | Authentication | `golang-jwt/jwt/v5` |
+| Password Hashing | `golang.org/x/crypto/bcrypt` |
 | Environment Config | `joho/godotenv` |
 | Containerization | Docker (multi-stage build) |
 
@@ -179,7 +178,7 @@ Handles the HTTP layer for all user-related operations:
 - `Register` — binds the request, hashes the password using `bcrypt`, calls the repository to create the user.
 - `Login` — looks up the user by username, compares the provided password against the stored bcrypt hash, and on success generates a signed JWT with the user's ID as a claim.
 - `GetUser` — returns public user fields for a given ID.
-- `UpdateUser` — updates username and/or email; protected by the auth middleware.
+- `UpdateUser` — updates username and/or email; protected by the auth middleware. The handler also verifies that the authenticated user's ID matches the requested `:id` parameter, preventing one user from modifying another user's profile.
 - `HealthCheck` — pings the database and returns service status.
 
 **`main.go`**
@@ -209,21 +208,104 @@ USERS_SERVER_PORT=8081
 
 ---
 
-### Dockerfile — Both Services
+### Task 1.3 — order-service
 
-Both services use an identical multi-stage Docker build pattern:
+#### Purpose
 
-**Stage 1 — Builder (`golang:1.26.0-alpine`)**
-- Copies `go.mod` and `go.sum` first and runs `go mod download` to cache dependencies as a separate layer.
-- Copies the rest of the source and compiles a statically linked binary with `CGO_ENABLED=0` targeting `linux/amd64`.
+Handles order creation and retrieval. Communicates with `book-service` to verify book existence and stock availability, and with `user-service` to verify that the requesting user exists. All order endpoints require JWT authentication.
 
-**Stage 2 — Runtime (`alpine:3.23.3`)**
-- Copies only the compiled binary from the builder stage.
-- Adds `ca-certificates` for HTTPS support.
-- Creates a non-root `appuser` and runs the binary under that user, following the principle of least privilege.
-- Exposes the appropriate port and sets the binary as the entrypoint.
+#### Directory Structure
 
-This approach produces a small final image that contains no Go toolchain or source code.
+```
+order-service/
+├── main.go
+├── handler/
+│   └── order.go
+├── model/
+│   └── order.go
+├── repository/
+│   └── order.go
+├── database/
+│   └── db.go
+├── middleware/
+│   └── auth.go
+├── client/
+│   ├── book_client.go
+│   └── user_client.go
+└── Dockerfile
+```
+
+#### Layers and Responsibilities
+
+**`model/order.go`**
+Defines:
+- `Order` — core struct mapping to the database row, including `user_id`, `book_id`, `quantity`, `total_price`, and `status`.
+- `CreateOrderRequest` — requires `book_id` (> 0) and `quantity` (> 0).
+- `BookResponse` — the subset of book fields consumed from the book-service response (`id`, `title`, `price`, `stock`).
+- `UserResponse` — the subset of user fields consumed from the user-service response (`id`, `name`, `email`).
+
+**`database/db.go`**
+Same pattern as the other services. Creates the `orders` table on startup:
+
+```sql
+CREATE TABLE IF NOT EXISTS orders (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL,
+    book_id     INTEGER NOT NULL,
+    quantity    INTEGER NOT NULL CHECK (quantity > 0),
+    total_price NUMERIC(10,2) NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'confirmed',
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+A `CHECK` constraint enforces that quantity is always greater than zero at the database level.
+
+**`repository/order.go`**
+- `CreateOrder` — inserts a new order and uses `RETURNING` to retrieve the full record in a single round trip.
+- `GetOrderByID` — queries by primary key, returns `nil, nil` if no matching row exists.
+- `GetOrdersByUserID` — queries all orders for a given user, ordered by `created_at` descending, returns an empty slice (not nil) if no orders exist.
+
+**`client/book_client.go`**
+Makes an HTTP GET request to `{BOOK_SERVICE_URL}/books/{id}`. Returns `nil, nil` if the book service responds with 404 (book not found), returns an error for any other non-200 status, and decodes the response body into a `BookResponse` struct on success.
+
+**`client/user_client.go`**
+Same pattern as the book client. Makes an HTTP GET request to `{USER_SERVICE_URL}/users/{id}`. Returns `nil, nil` on 404, an error on other non-200 responses, and decodes into a `UserResponse` on success.
+
+**`handler/order.go`**
+- `CreateOrder` — retrieves the authenticated `user_id` from the Gin context (set by the auth middleware), binds the request body, calls the user and book clients to validate both exist, checks that the requested quantity does not exceed available stock, computes `total_price = book.Price * quantity`, and persists the order.
+- `GetOrderByID` — fetches a single order by ID from the repository.
+- `GetOrdersByUserID` — fetches all orders for a user; verifies that the authenticated user's ID matches the requested `:userid` path parameter to prevent access to another user's orders.
+- `HealthCheck` — pings the database and returns service status.
+
+**`middleware/auth.go`**
+Identical in logic to the user-service middleware. Parses and validates the JWT from the `Authorization: Bearer <token>` header using the shared `SECRET_KEY`, and sets `user_id` in the Gin context on success.
+
+**`main.go`**
+Loads environment, connects to the database, and registers all routes. All `/orders` routes are grouped under `middleware.RequireAuth`. Server listens on `ORDERS_SERVER_PORT` (default: `8082`).
+
+#### API Endpoints
+
+| Method | Path | Auth Required | Description |
+|---|---|---|---|
+| GET | `/health` | No | Service and DB health check |
+| GET | `/metrics` | No | Metrics placeholder |
+| POST | `/orders` | Yes (Bearer JWT) | Create a new order |
+| GET | `/orders/:id` | Yes (Bearer JWT) | Get a specific order |
+| GET | `/orders/user/:userid` | Yes (Bearer JWT) | Get all orders for a user |
+
+#### Environment Variables
+
+```
+ORDERS_DB_HOST=orders_db
+ORDERS_DB_PORT=5434
+ORDERS_DB_USER=postgres
+ORDERS_DB_PASSWORD=password
+ORDERS_DB_NAME=orders_db
+ORDERS_SERVER_PORT=8082
+BOOK_SERVICE_URL=http://book-service:8080
+USER_SERVICE_URL=http://user-service:8081
+```
 
 ---
 
@@ -237,7 +319,7 @@ Each microservice has its own isolated PostgreSQL instance. They do not share a 
 |---|---|---|
 | book-service | `books_db` | 5432 |
 | user-service | `users_db` | 5433 |
-| order-service | `orders_db` | 5434 (planned) |
+| order-service | `orders_db` | 5434 |
 
 ### Schema Management
 
@@ -249,7 +331,258 @@ The standard `database/sql` package is used with the `lib/pq` driver. `database/
 
 ### Local and Docker Compose Testing
 
-Both services were verified locally and through Docker Compose before this documentation was written. In the Docker Compose setup:
+All three services were verified locally and through Docker Compose before this documentation was written. In the Docker Compose setup:
 - Each PostgreSQL instance runs as a separate container with a named volume for persistence.
-- Services connect to their respective databases using the service name as the hostname (e.g., `books_db`, `users_db`), which is resolved by Docker's internal DNS.
+- Services connect to their respective databases using the service name as the hostname (e.g., `books_db`, `users_db`, `orders_db`), which is resolved by Docker's internal DNS.
 - Environment variables are passed to each service container, overriding any `.env` defaults.
+
+---
+
+## Component 3: Containerization
+
+### Task 3.1 — Dockerfiles
+
+Each service uses an identical multi-stage Docker build pattern. The approach is consistent across all three services, with only the binary name, exposed port, and base image tag varying between them.
+
+**Stage 1 — Builder (`golang:1.26.0-alpine`)**
+- Copies `go.mod` and `go.sum` first and runs `go mod download` to cache the dependency layer independently from source changes.
+- Copies the rest of the source and compiles a statically linked binary using `CGO_ENABLED=0` targeting `linux/amd64`.
+
+**Stage 2 — Runtime (`alpine:3.23.3`)**
+- Copies only the compiled binary from the builder stage, excluding the Go toolchain and all source code from the final image.
+- Adds `ca-certificates` to support outbound HTTPS connections (required by order-service when calling other services, and generally recommended).
+- Creates a non-root `appuser` and switches to that user before the entrypoint, following the principle of least privilege.
+- Exposes the relevant port and sets the compiled binary as the container entrypoint.
+
+The resulting images are small and contain no build tooling, source, or unnecessary dependencies.
+
+#### book-service Dockerfile
+
+```dockerfile
+FROM golang:1.26.0-alpine AS builder
+
+WORKDIR /app/
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o book-service .
+
+FROM alpine:3.23.3
+
+WORKDIR /root/
+RUN apk --no-cache add ca-certificates
+COPY --from=builder /app/book-service ./
+RUN adduser -D appuser
+USER appuser
+
+EXPOSE 8080
+CMD ["./book-service"]
+```
+
+#### user-service Dockerfile
+
+```dockerfile
+FROM golang:1.26.0-alpine AS builder
+
+WORKDIR /app/
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o user-service .
+
+FROM alpine:3.23.3
+
+WORKDIR /root/
+RUN apk --no-cache add ca-certificates
+COPY --from=builder /app/user-service ./
+RUN adduser -D appuser
+USER appuser
+
+EXPOSE 8081
+CMD ["./user-service"]
+```
+
+#### order-service Dockerfile
+
+```dockerfile
+FROM golang:1.26.0-alpine AS builder
+
+WORKDIR /app/
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o order-service .
+
+FROM alpine:latest
+
+WORKDIR /root/
+RUN apk --no-cache add ca-certificates
+COPY --from=builder /app/order-service .
+RUN adduser -D appuser
+USER appuser
+
+EXPOSE 8082
+CMD ["./order-service"]
+```
+
+---
+
+### Task 3.2 — Docker Compose Setup
+
+The `docker-compose.yml` file defines the complete local development environment. It brings up three PostgreSQL containers (one per service), three application containers, configures inter-service networking, and mounts named volumes for database persistence.
+
+#### Services Defined
+
+| Container | Image / Build | Port (host:container) | Depends On |
+|---|---|---|---|
+| `books_db` | `postgres:13` | `5432:5432` | — |
+| `users_db` | `postgres:13` | `5433:5432` | — |
+| `orders_db` | `postgres:13` | `5434:5432` | — |
+| `book-service` | `./book-service` | `8080:8080` | `books_db` (healthy) |
+| `user-service` | `./user-service` | `8081:8081` | `users_db` (healthy) |
+| `order-service` | `./order-service` | `8082:8082` | `orders_db` (healthy), `book-service` (started), `user-service` (started) |
+
+#### docker-compose.yml
+
+```yaml
+name: microservices-application
+
+services:
+  users_db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${USERS_DB_USER}
+      POSTGRES_PASSWORD: ${USERS_DB_PASSWORD}
+      POSTGRES_DB: ${USERS_DB_NAME}
+    ports:
+      - "${USERS_DB_PORT}:5432"
+    volumes:
+      - users_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  books_db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${BOOKS_DB_USER}
+      POSTGRES_PASSWORD: ${BOOKS_DB_PASSWORD}
+      POSTGRES_DB: ${BOOKS_DB_NAME}
+    ports:
+      - "${BOOKS_DB_PORT}:5432"
+    volumes:
+      - books_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  orders_db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${ORDERS_DB_USER}
+      POSTGRES_PASSWORD: ${ORDERS_DB_PASSWORD}
+      POSTGRES_DB: ${ORDERS_DB_NAME}
+    ports:
+      - "${ORDERS_DB_PORT}:5432"
+    volumes:
+      - orders_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  user-service:
+    build: ./user-service/
+    container_name: user-service
+    ports:
+      - "8081:${USERS_SERVER_PORT}"
+    environment:
+      USERS_DB_HOST: ${USERS_DB_HOST}
+      USERS_DB_PORT: 5432
+      USERS_DB_USER: ${USERS_DB_USER}
+      USERS_DB_PASSWORD: ${USERS_DB_PASSWORD}
+      USERS_DB_NAME: ${USERS_DB_NAME}
+      USERS_SERVER_PORT: ${USERS_SERVER_PORT}
+      SECRET_KEY: ${SECRET_KEY}
+    depends_on:
+      users_db:
+        condition: service_healthy
+
+  book-service:
+    build: ./book-service
+    container_name: book-service
+    ports:
+      - "8080:${BOOKS_SERVER_PORT}"
+    environment:
+      BOOKS_DB_HOST: ${BOOKS_DB_HOST}
+      BOOKS_DB_PORT: 5432
+      BOOKS_DB_USER: ${BOOKS_DB_USER}
+      BOOKS_DB_PASSWORD: ${BOOKS_DB_PASSWORD}
+      BOOKS_DB_NAME: ${BOOKS_DB_NAME}
+      BOOKS_SERVER_PORT: ${BOOKS_SERVER_PORT}
+    depends_on:
+      books_db:
+        condition: service_healthy
+
+  order-service:
+    build: ./order-service/
+    container_name: order-service
+    ports:
+      - "8082:${ORDERS_SERVER_PORT}"
+    environment:
+      ORDERS_DB_HOST: ${ORDERS_DB_HOST}
+      ORDERS_DB_PORT: 5432
+      ORDERS_DB_USER: ${ORDERS_DB_USER}
+      ORDERS_DB_PASSWORD: ${ORDERS_DB_PASSWORD}
+      ORDERS_DB_NAME: ${ORDERS_DB_NAME}
+      ORDERS_SERVER_PORT: ${ORDERS_SERVER_PORT}
+      BOOK_SERVICE_URL: http://book-service:8080
+      USER_SERVICE_URL: http://user-service:8081
+      SECRET_KEY: ${SECRET_KEY}
+    depends_on:
+      orders_db:
+        condition: service_healthy
+      book-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+
+volumes:
+  books_db_data:
+  users_db_data:
+  orders_db_data:
+
+networks:
+  default:
+    driver: bridge
+```
+
+#### Running the Stack Locally
+
+Build and start in detached mode:
+
+```bash
+docker compose up --build -d
+```
+
+Tear down containers and remove volumes:
+
+```bash
+docker compose down -v
+```
+
+Once running, the services are accessible at:
+- book-service: `http://localhost:8080`
+- user-service: `http://localhost:8081`
+- order-service: `http://localhost:8082`

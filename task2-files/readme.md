@@ -1,10 +1,20 @@
 # Kubernetes Cluster Deployment Project
 
-## Project Overview
-
-This project involves the deployment and configuration of a production-grade Kubernetes cluster on private virtual machines with secure remote access and load balancing capabilities.
+This document covers the deployment and configuration of a production-grade Kubernetes cluster on private virtual machines with secure remote access and load balancing capabilities.
 
 The project establishes a secure, scalable Kubernetes environment suitable for hosting containerized applications with enterprise-level access control and service delivery mechanisms.
+
+## Table of Contents
+[Architecture Overview](#architecture-overview)  
+[Deploy Kubernetes Using kubeadm](#task-1-deploy-kubernetes-using-kubeadm)  
+[Configure Jump Server Access](#task-2-configure-jump-server-access)   
+[Configure MetalLB with Public IP](#task-3-configure-metallb-with-public-ip)  
+[Deploy Application with Ingress](#task-4-deploy-application-with-ingress)  
+[Set Up Port Forwarding For Ingress](#task-4a-set-up-port-forwarding-for-ingress)  
+[Create CI/CD Pipeline with GitHub Actions](#task-6-create-cicd-pipeline-with-github-actions)  
+[Common Commands Reference](#common-commands-reference)  
+[Known Limitations and Considerations](#known-limitations-and-considerations)  
+
 
 ## Architecture Overview
 
@@ -1019,6 +1029,8 @@ kubectl describe deployment simple-api-simple-api-chart -n default | grep Image
 The image shown should match the DockerHub image with the Git SHA tag that was built during the pipeline run.
 
 The Kubernetes cluster nodes are on private VMs with no public IP. GitHub Actions runners are cloud-hosted and cannot reach the cluster directly. To solve this, the pipeline SSHes into the jump server, which already has kubectl and Helm configured with access to the private cluster. All Helm and kubectl commands are executed remotely on the jump server rather than on the GitHub Actions runner itself.
+
+![github-actions-runs.png](./screenshots/github-actions-runs.png)
 
 ---
 

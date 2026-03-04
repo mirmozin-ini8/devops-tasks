@@ -8,20 +8,20 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o user-service .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o order-service .
 
-FROM alpine:3.23.3
+FROM alpine:latest
 
 WORKDIR /root/
 
 RUN apk --no-cache add ca-certificates
 
-COPY --from=builder /app/user-service ./
+COPY --from=builder /app/order-service .
 
 RUN adduser -D appuser
 
 USER appuser
 
-EXPOSE 8081
+EXPOSE 8082
 
-CMD ["./user-service"]
+CMD ["./order-service"]

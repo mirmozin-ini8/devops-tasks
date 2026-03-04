@@ -2,10 +2,10 @@ package main
 
 import (
 	"log"
+	"order-service/database"
+	"order-service/handler"
+	"order-service/middleware"
 	"os"
-	"user-service/database"
-	"user-service/handler"
-	"user-service/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -21,26 +21,24 @@ func main() {
 	router := gin.Default()
 
 	router.GET("/health", handler.HealthCheck)
-
 	router.GET("/metrics", func(c *gin.Context) {
 		c.String(200, "tbd\n")
 	})
 
-	router.POST("/login", handler.Login)
-
-	users := router.Group("/users")
+	orders := router.Group("/orders")
+	orders.Use(middleware.RequireAuth)
 	{
-		users.POST("", handler.Register)
-		users.GET("/:id", handler.GetUser)
-		users.PUT("/:id", middleware.RequireAuth, handler.UpdateUser)
+		orders.POST("", handler.CreateOrder)
+		orders.GET("/:id", handler.GetOrderByID)
+		orders.GET("/user/:userid", handler.GetOrderByID)
 	}
 
-	port := os.Getenv("USERS_SERVER_PORT")
+	port := os.Getenv("ORDERS_SERVER_PORT")
 	if port == "" {
-		port = "8081"
+		port = "8082"
 	}
 
-	log.Printf("user service starting on port %s", port)
+	log.Printf("order service starting on port %s", port)
 
 	if err := router.Run(":" + port); err != nil {
 		log.Fatal("failed to start server: ", err)
