@@ -30,7 +30,7 @@ func main() {
 	{
 		orders.POST("", handler.CreateOrder)
 		orders.GET("/:id", handler.GetOrderByID)
-		orders.GET("/user/:userid", handler.GetOrderByID)
+		orders.GET("/user/:userid", handler.GetOrdersByUserID)
 	}
 
 	port := os.Getenv("ORDERS_SERVER_PORT")

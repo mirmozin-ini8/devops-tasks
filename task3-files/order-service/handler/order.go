@@ -90,7 +90,7 @@ func GetOrderByID(c *gin.Context) {
 }
 
 func GetOrdersByUserID(c *gin.Context) {
-	requestedUserID, err := strconv.Atoi(c.Param("userID"))
+	requestedUserID, err := strconv.Atoi(c.Param("userId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user ID"})
 		return

@@ -45,7 +45,6 @@ func createTable() {
 	_, err := DB.Exec(query)
 	if err != nil {
 		log.Fatal("failed to create orders table: ", err)
-
-		log.Println("orders table ready")
 	}
+	log.Println("orders table ready")
 }
