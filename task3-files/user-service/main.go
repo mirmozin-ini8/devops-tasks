@@ -20,16 +20,14 @@ func main() {
 
 	router := gin.Default()
 
-	router.GET("/health", handler.HealthCheck)
-
-	router.GET("/metrics", func(c *gin.Context) {
-		c.String(200, "tbd\n")
-	})
-
 	router.POST("/login", handler.Login)
 
 	users := router.Group("/users")
 	{
+		users.GET("/health", handler.HealthCheck)
+		users.GET("/metrics", func(c *gin.Context) {
+			c.String(200, "tbd\n")
+		})
 		users.POST("", handler.Register)
 		users.GET("/:id", handler.GetUser)
 		users.PUT("/:id", middleware.RequireAuth, handler.UpdateUser)

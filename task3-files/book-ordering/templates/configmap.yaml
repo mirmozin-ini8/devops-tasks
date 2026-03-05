@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: app-config
+    namespace: {{ .Values.namespace }}
+data:
+    BOOKS_DB_HOST: {{ .Values.database.books.host }}
+    BOOKS_DB_PORT: {{ .Values.database.books.port | quote }}
+    BOOKS_DB_USER: {{ .Values.database.books.user }}
+    BOOKS_DB_NAME: {{ .Values.database.books.name }}
+    BOOKS_SERVER_PORT: {{ .Values.ports.bookService | quote }}
+
+    USERS_DB_HOST: {{ .Values.database.users.host }}
+    USERS_DB_PORT: {{ .Values.database.users.port | quote }}
+    USERS_DB_USER: {{ .Values.database.users.user }}
+    USERS_DB_NAME: {{ .Values.database.users.name }}
+    USERS_SERVER_PORT: {{ .Values.ports.userService | quote }}
+
+    ORDERS_DB_HOST: {{ .Values.database.orders.host }}
+    ORDERS_DB_PORT: {{ .Values.database.orders.port | quote }}
+    ORDERS_DB_USER: {{ .Values.database.orders.user }}
+    ORDERS_DB_NAME: {{ .Values.database.orders.name }}
+    ORDERS_SERVER_PORT: {{ .Values.ports.orderService | quote }}
+
+    BOOK_SERVICE_URL: {{ .Values.serviceUrls.bookService }}
+    USER_SERVICE_URL: {{ .Values.serviceUrls.userService }}

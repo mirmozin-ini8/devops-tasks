@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: order-service
+    namespace: {{ .Values.namespace }}
+    labels:
+        app: order-service
+spec:
+    replicas: {{ .Values.replicaCount.orderService }}
+    selector:
+        matchLabels:
+            app: order-service
+    template:
+        metadata:
+            labels:
+                app: order-service
+        spec:
+            containers:
+              - name: order-service
+                image: {{ .Values.images.orderService.repository }}:{{ .Values.images.orderService.tag }}
+                imagePullPolicy: {{ .Values.images.orderService.pullPolicy }}
+                ports:
+                  - containerPort: {{ .Values.ports.orderService }}
+                envFrom:
+                  - configMapRef:
+                        name: app-config
+                env:
+                  - name: ORDERS_DB_PASSWORD
+                    valueFrom:
+                        secretKeyRef:
+                            name: db-secret
+                            key: postgres-password
+                  - name: SECRET_KEY
+                    valueFrom:
+                        secretKeyRef:
+                            name: db-secret
+                            key: jwt-secret
+                resources:
+                    requests:
+                        cpu: {{ .Values.resources.orderService.requests.cpu }}
+                        memory: {{ .Values.resources.orderService.requests.memory }}
+                    limits:
+                        cpu: {{ .Values.resources.orderService.limits.cpu }}
+                        memory: {{ .Values.resources.orderService.limits.memory }}
+                livenessProbe:
+                    httpGet:
+                        path: /health
+                        port: {{ .Values.ports.orderService }}
+
+                    initialDelaySeconds: 15
+                    periodSeconds: 10
+                    failureThreshold: 3
+
+                readinessProbe:
+                    httpGet:
+                        path: /health
+                        port: {{ .Values.ports.orderService }}
+                    initialDelaySeconds: 10
+                    periodSeconds: 5
+                    failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: order-service
+    namespace: {{ .Values.namespace }}
+spec:
+    selector:
+        app: order-service
+    ports:
+      - port: {{ .Values.ports.orderService }}
+        targetPort: {{ .Values.ports.orderService }}
+    type: ClusterIP

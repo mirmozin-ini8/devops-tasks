@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: books-db-pvc
+    namespace: {{ .Values.namespace }}
+spec:
+    accessModes:
+        - ReadWriteOnce
+    resources:
+        requests:
+            storage: {{ .Values.storage.books }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: books-db
+    namespace: {{ .Values.namespace }}
+    labels:
+        app: books-db
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: books-db
+    template:  
+        metadata:
+            labels:
+                app: books-db
+        spec:
+            containers:
+              - name: books-db
+                image: {{ .Values.images.postgres.repository }}:{{ .Values.images.postgres.tag }}
+                imagePullPolicy: {{ .Values.images.postgres.pullPolicy }}
+                ports: 
+                  - containerPort: 5432
+                env:
+                  - name: POSTGRES_USER
+                    valueFrom:
+                        configMapKeyRef:
+                            name: app-config
+                            key: BOOKS_DB_USER
+
+                  - name: POSTGRES_DB
+                    valueFrom:
+                        configMapKeyRef:
+                            name: app-config
+                            key: BOOKS_DB_NAME
+
+                  - name: POSTGRES_PASSWORD
+                    valueFrom: 
+                        secretKeyRef:
+                            name: db-secret
+                            key: postgres-password
+                resources:
+                    requests:
+                        cpu:  {{ .Values.resources.postgres.requests.cpu }}
+                        memory:  {{ .Values.resources.postgres.requests.memory }}
+                    limits:
+                        cpu:  {{ .Values.resources.postgres.limits.cpu }}
+                        memory:  {{ .Values.resources.postgres.limits.memory }}
+                volumeMounts:
+                  - name: books-db-storage
+                    mountPath: /var/lib/postgresql/data
+
+                readinessProbe:
+                    exec:
+                        command:
+                          - pg_isready
+                          - -U
+                          - postgres
+                    initialDelaySeconds: 10
+                    periodSeconds: 5
+                    failureThreshold: 6
+
+                livenessProbe:
+                    exec:
+                        command:
+                          - pg_isready
+                          - -U
+                          - postgres
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                    failureThreshold: 3
+            volumes:
+              - name: books-db-storage
+                persistentVolumeClaim:
+                    claimName: books-db-pvc
+    
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: books-db
+    namespace: {{ .Values.namespace }}
+spec:
+    selector:
+        app: books-db
+    ports:
+      - port: 5432
+        targetPort: 5432
+    type: ClusterIP

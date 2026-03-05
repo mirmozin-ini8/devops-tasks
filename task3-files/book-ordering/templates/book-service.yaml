@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: book-service
+    namespace: {{ .Values.namespace }}
+    labels:
+        app: book-service
+spec:
+    replicas: {{ .Values.replicaCount.bookService }}
+    selector:
+        matchLabels:
+            app: book-service
+    template:
+        metadata:
+            labels:
+                app: book-service
+        spec:
+            containers:
+              - name: book-service
+                image: {{ .Values.images.bookService.repository }}:{{ .Values.images.bookService.tag }}
+                imagePullPolicy: {{ .Values.images.bookService.pullPolicy }}
+                ports:
+                  - containerPort: {{ .Values.ports.bookService }}
+                envFrom:
+                  - configMapRef:
+                        name: app-config
+                env:
+                  - name: BOOKS_DB_PASSWORD
+                    valueFrom:
+                        secretKeyRef:
+                            name: db-secret
+                            key: postgres-password
+                resources:
+                    requests:
+                        cpu: {{ .Values.resources.bookService.requests.cpu }}
+                        memory: {{ .Values.resources.bookService.requests.memory }}
+                    limits:
+                        cpu: {{ .Values.resources.bookService.limits.cpu }}
+                        memory: {{ .Values.resources.bookService.limits.memory }}
+                livenessProbe:
+                    httpGet:
+                        path: /health
+                        port: {{ .Values.ports.bookService }}
+
+                    initialDelaySeconds: 15
+                    periodSeconds: 10
+                    failureThreshold: 3
+
+                readinessProbe:
+                    httpGet:
+                        path: /health
+                        port: {{ .Values.ports.bookService }}
+                    initialDelaySeconds: 10
+                    periodSeconds: 5
+                    failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: book-service
+    namespace: {{ .Values.namespace }}
+spec:
+    selector:
+        app: book-service
+    ports:
+      - port: {{ .Values.ports.bookService }}
+        targetPort: {{ .Values.ports.bookService }}
+    type: ClusterIP

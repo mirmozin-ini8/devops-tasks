@@ -20,17 +20,18 @@ func main() {
 
 	router := gin.Default()
 
-	router.GET("/health", handler.HealthCheck)
-	router.GET("/metrics", func(c *gin.Context) {
+	orders := router.Group("/orders")
+	orders.GET("/health", handler.HealthCheck)
+	orders.GET("/metrics", func(c *gin.Context) {
 		c.String(200, "tbd\n")
 	})
 
-	orders := router.Group("/orders")
-	orders.Use(middleware.RequireAuth)
+	protected := orders.Group("")
+	protected.Use(middleware.RequireAuth)
 	{
-		orders.POST("", handler.CreateOrder)
-		orders.GET("/:id", handler.GetOrderByID)
-		orders.GET("/user/:userid", handler.GetOrdersByUserID)
+		protected.POST("", handler.CreateOrder)
+		protected.GET("/user/:userId", handler.GetOrdersByUserID)
+		protected.GET("/:id", handler.GetOrderByID)
 	}
 
 	port := os.Getenv("ORDERS_SERVER_PORT")

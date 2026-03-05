@@ -19,14 +19,12 @@ func main() {
 
 	router := gin.Default()
 
-	router.GET("/health", handler.HealthCheck)
-
-	router.GET("/metrics", func(c *gin.Context) {
-		c.String(200, "tbd\n")
-	})
-
 	books := router.Group("/books")
 	{
+		books.GET("/health", handler.HealthCheck)
+		books.GET("/metrics", func(c *gin.Context) {
+			c.String(200, "tbd\n")
+		})
 		books.GET("", handler.GetAllBooks)
 		books.GET("/:id", handler.GetBookByID)
 		books.POST("", handler.CreateBook)
