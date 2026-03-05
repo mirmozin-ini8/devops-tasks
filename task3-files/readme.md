@@ -1,6 +1,6 @@
-# Microservices Deployment - Documentation
+# Microservices Book Ordering - Documentation
 
-This document covers the implementation of the microservices application: the development of `book-service`, `user-service`, and `order-service`, along with their respective database configurations, Dockerfiles, and Docker Compose setup. All three services are written in Go using the Gin web framework and are backed by isolated PostgreSQL instances.
+This document covers the implementation of the book ordering microservices application: the development of `book-service`, `user-service`, and `order-service`, along with their respective database configurations, Dockerfiles, and Docker Compose setup. All three services are written in Go using the Gin web framework and are backed by isolated PostgreSQL instances.
 
 ---
 
