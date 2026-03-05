@@ -1,57 +1,110 @@
-# Microservices Book Ordering - Documentation
+# Book Ordering System
 
-This document covers the implementation of the book ordering microservices application: the development of `book-service`, `user-service`, and `order-service`, along with their respective database configurations, Dockerfiles, and Docker Compose setup. All three services are written in Go using the Gin web framework and are backed by isolated PostgreSQL instances.
+A microservices-based book ordering application built with Go (Gin), deployed on Kubernetes using Helm. Three independent services communicate over HTTP using Kubernetes internal DNS, with all external traffic routed through an NGINX Ingress Controller.
 
 ---
 
-## Component 1: Microservices Development
+## Table of Contents
+
+- [Architecture Overview](#architecture-overview)
+- [Services](#services)
+- [Infrastructure](#infrastructure)
+- [Microservices Development](#microservices-development)
+- [Containerization](#containerization)
+- [Kubernetes Deployment](#kubernetes-deployment)
+- [Helm Chart](#helm-chart)
+- [Deployment Procedure](#deployment-procedure)
+- [API Testing](#api-testing)
+- [Known Limitations](#known-limitations)
+- [Debugging Reference](#debugging-reference)
+
+---
+
+## Architecture Overview
+
+```
+Client → book-ordering.dynv6.net
+       → Jump Server (public IP)
+         → kubectl port-forward :8080 → ingress-nginx-controller:80
+           → Ingress (path-based routing)
+               /books/*   → book-service:8080
+               /users/*   → user-service:8081
+               /login     → user-service:8081
+               /orders/*  → order-service:8082
+```
+
+### Inter-Service Communication
+
+`order-service` calls `book-service` and `user-service` over HTTP using Kubernetes internal DNS. URLs are injected via ConfigMap:
+
+```
+BOOK_SERVICE_URL = http://book-service:8080
+USER_SERVICE_URL = http://user-service:8081
+```
+
+---
+
+## Services
+
+| Service | Port | Database | Image |
+|---|---|---|---|
+| book-service | 8080 | books_db | justnotmirr/book-service:v1.3 |
+| user-service | 8081 | users_db | justnotmirr/user-service:v1.3 |
+| order-service | 8082 | orders_db | justnotmirr/order-service:v1.3.1 |
+| books-db | 5432 | books_db | postgres:15 |
+| users-db | 5432 | users_db | postgres:15 |
+| orders-db | 5432 | orders_db | postgres:15 |
+
+---
+
+## Infrastructure
+
+| Component | Value |
+|---|---|
+| Master node | mozin-masternode |
+| Worker node | mozin-workernode |
+| Kubernetes | v1.31.14 (kubeadm) |
+| CNI | Flannel |
+| Ingress | NGINX (ingress-nginx) |
+| Storage | rancher/local-path |
+| Helm | v4.1.1 | 
+| Domain | book-ordering.dynv6.net |
+
+---
+
+## Microservices Development
 
 ### Technology Stack
 
 | Layer | Choice |
 |---|---|
-| Language | Go 1.23+ |
+| Language | Go 1.22+ |
 | Web Framework | Gin |
-| Database Driver | `lib/pq` (PostgreSQL) |
-| Authentication | `golang-jwt/jwt/v5` |
-| Password Hashing | `golang.org/x/crypto/bcrypt` |
-| Environment Config | `joho/godotenv` |
-| Containerization | Docker (multi-stage build) |
+| Database driver | lib/pq (PostgreSQL) |
+| Authentication | golang-jwt/jwt/v5 |
+| Password hashing | golang.org/x/crypto/bcrypt |
+| Env config | joho/godotenv |
+| Containerization | Docker multi-stage builds |
 
 ---
 
-### Task 1.1 — book-service
+### book-service
 
-#### Purpose
+Manages the book catalog. Full CRUD on books backed by `books_db`.
 
-Manages the book catalog. Exposes a RESTful API for full CRUD operations on books, backed by a dedicated PostgreSQL database (`books_db`).
+**API Endpoints**
 
-#### Directory Structure
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | /books/health | No | Health check |
+| GET | /books/metrics | No | Metrics placeholder |
+| GET | /books | No | List all books |
+| GET | /books/:id | No | Get a specific book |
+| POST | /books | No | Create a new book |
+| PUT | /books/:id | No | Partial update |
+| DELETE | /books/:id | No | Delete a book |
 
-```
-book-service/
-├── main.go
-├── handler/
-│   └── book.go
-├── model/
-│   └── book.go
-├── repository/
-│   └── book.go
-├── database/
-│   └── db.go
-└── Dockerfile
-```
-
-#### Layers and Responsibilities
-
-**`model/book.go`**
-Defines the core data structures used across the service:
-- `Book` — maps to the database row, serialized to JSON in API responses.
-- `CreateBookRequest` — used for `POST /books`, with validation bindings (title and author required, price must be > 0, stock >= 0).
-- `UpdateBookRequest` — used for `PUT /books/{id}`, all fields are optional pointers to support partial updates.
-
-**`database/db.go`**
-Opens a PostgreSQL connection using environment variables, verifies the connection with a ping, and runs a `CREATE TABLE IF NOT EXISTS` statement on startup to ensure the `books` table exists. The table schema is:
+**Database Schema**
 
 ```sql
 CREATE TABLE IF NOT EXISTS books (
@@ -64,88 +117,35 @@ CREATE TABLE IF NOT EXISTS books (
 );
 ```
 
-This approach handles schema bootstrapping without a separate migration tool, which is appropriate for this stage of the project.
-
-**`repository/book.go`**
-Contains all SQL logic, keeping database access isolated from HTTP handling:
-- `GetAllBooks` — queries all rows ordered by ID, returns an empty slice (not nil) if no books exist.
-- `GetBookByID` — queries by primary key, returns `nil, nil` if not found (distinguished from a DB error).
-- `CreateBook` — inserts a row and uses `RETURNING` to get the created record back in a single query.
-- `UpdateBook` — fetches the existing record first, applies only the fields that are non-nil in the request, then executes an `UPDATE`.
-- `DeleteBook` — deletes by ID and checks `RowsAffected` to distinguish "not found" from a successful delete.
-
-**`handler/book.go`**
-The HTTP layer. Each handler parses the request, calls the appropriate repository function, and writes a JSON response with the correct status code. Error cases handled:
-- Invalid path parameter (400)
-- Record not found (404)
-- Database or internal errors (500)
-
-Also includes `HealthCheck`, which pings the database and returns service status.
-
-**`main.go`**
-Entry point. Loads `.env` if present (falls back gracefully if not), initializes the database connection, registers all routes under a `/books` group, and starts the Gin server on the port specified by `BOOKS_SERVER_PORT` (default: `8080`).
-
-#### API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/health` | Service and DB health check |
-| GET | `/metrics` | Metrics placeholder |
-| GET | `/books` | List all books |
-| GET | `/books/:id` | Get a specific book |
-| POST | `/books` | Create a new book |
-| PUT | `/books/:id` | Update a book (partial update supported) |
-| DELETE | `/books/:id` | Delete a book |
-
-#### Environment Variables
+**Environment Variables**
 
 ```
-BOOKS_DB_HOST=books_db 
+BOOKS_DB_HOST=books-db
 BOOKS_DB_PORT=5432
 BOOKS_DB_USER=postgres
-BOOKS_DB_PASSWORD=password
+BOOKS_DB_PASSWORD=<from secret>
 BOOKS_DB_NAME=books_db
 BOOKS_SERVER_PORT=8080
 ```
 
 ---
 
-### Task 1.2 — user-service
+### user-service
 
-#### Purpose
+Handles user registration, login, and profile management. Issues JWT tokens on login.
 
-Handles user registration, login, and profile management. Issues JWT tokens on successful login. A protected endpoint (`PUT /users/:id`) requires a valid token via an auth middleware.
+**API Endpoints**
 
-#### Directory Structure
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | /users/health | No | Health check |
+| GET | /users/metrics | No | Metrics placeholder |
+| POST | /users | No | Register a new user |
+| GET | /users/:id | No | Get user details |
+| POST | /login | No | Login — returns JWT token |
+| PUT | /users/:id | Yes — Bearer JWT | Update own profile only |
 
-```
-user-service/
-├── main.go
-├── handler/
-│   └── user.go
-├── model/
-│   └── user.go
-├── repository/
-│   └── user.go
-├── database/
-│   └── db.go
-├── middleware/
-│   └── auth.go
-└── Dockerfile
-```
-
-#### Layers and Responsibilities
-
-**`model/user.go`**
-Defines:
-- `User` — core struct; `PasswordHash` is tagged with `json:"-"` to ensure it is never serialized into API responses.
-- `RegisterRequest` — validates username length (3–30 chars), email format, and password minimum length (6 chars).
-- `LoginRequest` — username and password, both required.
-- `UpdateUserRequest` — optional pointer fields for username and email.
-- `LoginResponse` — wraps the JWT token and the user object returned on successful login.
-
-**`database/db.go`**
-Same pattern as book-service. Reads connection parameters from environment variables and creates the `users` table on startup:
+**Database Schema**
 
 ```sql
 CREATE TABLE IF NOT EXISTS users (
@@ -157,95 +157,56 @@ CREATE TABLE IF NOT EXISTS users (
 );
 ```
 
-`UNIQUE` constraints on `username` and `email` enforce uniqueness at the database level, which is relied upon in the registration handler.
+**JWT Authentication Flow**
 
-**`repository/user.go`**
-- `GetUserByID` — returns the user without the password hash (not selected in query).
-- `GetUserByUsername` — selects the password hash as well, used during login to compare credentials.
-- `CreateUser` — inserts a new user with the pre-hashed password, returns the created record.
-- `UpdateUser` — fetches the existing record, applies non-nil fields, runs an `UPDATE`.
+1. Client POSTs credentials to `POST /login`
+2. user-service verifies password against bcrypt hash
+3. On success, signs a JWT containing `user_id` using `SECRET_KEY`
+4. Client includes token in subsequent requests: `Authorization: Bearer <token>`
+5. Auth middleware validates signature, extracts `user_id`, sets in Gin context
+6. Handlers read `user_id` from context — never from the request body
 
-**`middleware/auth.go`**
-The `RequireAuth` middleware:
-1. Reads the `Authorization` header.
-2. Expects the format `Bearer <token>`.
-3. Parses and validates the JWT using the `SECRET_KEY` environment variable and HMAC signing method verification.
-4. On success, sets `user_id` in the Gin context for downstream handlers.
-5. Aborts with 401 on any failure (missing header, wrong format, invalid or expired token).
+> **Security note:** `user_id` is always taken from the validated JWT, never from the request body. This prevents users from creating or accessing resources belonging to other users.
 
-**`handler/user.go`**
-Handles the HTTP layer for all user-related operations:
-- `Register` — binds the request, hashes the password using `bcrypt`, calls the repository to create the user.
-- `Login` — looks up the user by username, compares the provided password against the stored bcrypt hash, and on success generates a signed JWT with the user's ID as a claim.
-- `GetUser` — returns public user fields for a given ID.
-- `UpdateUser` — updates username and/or email; protected by the auth middleware. The handler also verifies that the authenticated user's ID matches the requested `:id` parameter, preventing one user from modifying another user's profile.
-- `HealthCheck` — pings the database and returns service status.
-
-**`main.go`**
-Loads environment, connects to the database, and sets up routes. The `PUT /users/:id` route is protected with `middleware.RequireAuth`. Server listens on `USERS_SERVER_PORT` (default: `8081`).
-
-#### API Endpoints
-
-| Method | Path | Auth Required | Description |
-|---|---|---|---|
-| GET | `/health` | No | Service and DB health check |
-| GET | `/metrics` | No | Metrics placeholder |
-| POST | `/users` | No | Register a new user |
-| GET | `/users/:id` | No | Get user details |
-| POST | `/login` | No | Login and receive JWT token |
-| PUT | `/users/:id` | Yes (Bearer JWT) | Update user profile |
-
-#### Environment Variables
+**Environment Variables**
 
 ```
-USERS_DB_HOST=users_db
-USERS_DB_PORT=5433
+USERS_DB_HOST=users-db
+USERS_DB_PORT=5432
 USERS_DB_USER=postgres
-USERS_DB_PASSWORD=password
+USERS_DB_PASSWORD=<from secret>
 USERS_DB_NAME=users_db
 USERS_SERVER_PORT=8081
+SECRET_KEY=<from secret>
 ```
 
 ---
 
-### Task 1.3 — order-service
+### order-service
 
-#### Purpose
+Handles order creation and retrieval. Calls `book-service` to verify availability and `user-service` to verify the user exists. All order endpoints require JWT authentication.
 
-Handles order creation and retrieval. Communicates with `book-service` to verify book existence and stock availability, and with `user-service` to verify that the requesting user exists. All order endpoints require JWT authentication.
+**API Endpoints**
 
-#### Directory Structure
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | /orders/health | No | Health check |
+| GET | /orders/metrics | No | Metrics placeholder |
+| POST | /orders | Yes — Bearer JWT | Create a new order |
+| GET | /orders/user/:userId | Yes — Bearer JWT | Get all orders for authenticated user |
+| GET | /orders/:id | Yes — Bearer JWT | Get a specific order |
 
-```
-order-service/
-├── main.go
-├── handler/
-│   └── order.go
-├── model/
-│   └── order.go
-├── repository/
-│   └── order.go
-├── database/
-│   └── db.go
-├── middleware/
-│   └── auth.go
-├── client/
-│   ├── book_client.go
-│   └── user_client.go
-└── Dockerfile
-```
+**Order Creation Flow**
 
-#### Layers and Responsibilities
+1. Client sends `POST /orders` with `book_id` and `quantity` (JWT required)
+2. Middleware validates JWT, extracts `user_id`
+3. Calls `GET /users/:userId` to verify user exists
+4. Calls `GET /books/:bookId` to verify book and check stock
+5. If `book.Stock < quantity` → returns `400` with available stock
+6. Computes `total_price = book.Price * quantity`
+7. Inserts order with status `confirmed`
 
-**`model/order.go`**
-Defines:
-- `Order` — core struct mapping to the database row, including `user_id`, `book_id`, `quantity`, `total_price`, and `status`.
-- `CreateOrderRequest` — requires `book_id` (> 0) and `quantity` (> 0).
-- `BookResponse` — the subset of book fields consumed from the book-service response (`id`, `title`, `price`, `stock`).
-- `UserResponse` — the subset of user fields consumed from the user-service response (`id`, `name`, `email`).
-
-**`database/db.go`**
-Same pattern as the other services. Creates the `orders` table on startup:
+**Database Schema**
 
 ```sql
 CREATE TABLE IF NOT EXISTS orders (
@@ -259,110 +220,40 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 ```
 
-A `CHECK` constraint enforces that quantity is always greater than zero at the database level.
+**Route Order (important)**
 
-**`repository/order.go`**
-- `CreateOrder` — inserts a new order and uses `RETURNING` to retrieve the full record in a single round trip.
-- `GetOrderByID` — queries by primary key, returns `nil, nil` if no matching row exists.
-- `GetOrdersByUserID` — queries all orders for a given user, ordered by `created_at` descending, returns an empty slice (not nil) if no orders exist.
+Static route MUST come before dynamic route in Gin
+```go
+protected.GET("/user/:userId", handler.GetOrdersByUserID) 
+protected.GET("/:id", handler.GetOrderByID)   
+```
 
-**`client/book_client.go`**
-Makes an HTTP GET request to `{BOOK_SERVICE_URL}/books/{id}`. Returns `nil, nil` if the book service responds with 404 (book not found), returns an error for any other non-200 status, and decodes the response body into a `BookResponse` struct on success.
-
-**`client/user_client.go`**
-Same pattern as the book client. Makes an HTTP GET request to `{USER_SERVICE_URL}/users/{id}`. Returns `nil, nil` on 404, an error on other non-200 responses, and decodes into a `UserResponse` on success.
-
-**`handler/order.go`**
-- `CreateOrder` — retrieves the authenticated `user_id` from the Gin context (set by the auth middleware), binds the request body, calls the user and book clients to validate both exist, checks that the requested quantity does not exceed available stock, computes `total_price = book.Price * quantity`, and persists the order.
-- `GetOrderByID` — fetches a single order by ID from the repository.
-- `GetOrdersByUserID` — fetches all orders for a user; verifies that the authenticated user's ID matches the requested `:userid` path parameter to prevent access to another user's orders.
-- `HealthCheck` — pings the database and returns service status.
-
-**`middleware/auth.go`**
-Identical in logic to the user-service middleware. Parses and validates the JWT from the `Authorization: Bearer <token>` header using the shared `SECRET_KEY`, and sets `user_id` in the Gin context on success.
-
-**`main.go`**
-Loads environment, connects to the database, and registers all routes. All `/orders` routes are grouped under `middleware.RequireAuth`. Server listens on `ORDERS_SERVER_PORT` (default: `8082`).
-
-#### API Endpoints
-
-| Method | Path | Auth Required | Description |
-|---|---|---|---|
-| GET | `/health` | No | Service and DB health check |
-| GET | `/metrics` | No | Metrics placeholder |
-| POST | `/orders` | Yes (Bearer JWT) | Create a new order |
-| GET | `/orders/:id` | Yes (Bearer JWT) | Get a specific order |
-| GET | `/orders/user/:userid` | Yes (Bearer JWT) | Get all orders for a user |
-
-#### Environment Variables
+**Environment Variables**
 
 ```
-ORDERS_DB_HOST=orders_db
-ORDERS_DB_PORT=5434
+ORDERS_DB_HOST=orders-db
+ORDERS_DB_PORT=5432
 ORDERS_DB_USER=postgres
-ORDERS_DB_PASSWORD=password
+ORDERS_DB_PASSWORD=<from secret>
 ORDERS_DB_NAME=orders_db
 ORDERS_SERVER_PORT=8082
 BOOK_SERVICE_URL=http://book-service:8080
 USER_SERVICE_URL=http://user-service:8081
+SECRET_KEY=<from secret>
 ```
 
 ---
 
-## Component 2: Database Configuration
+## Containerization
 
-### Approach
+### Multi-Stage Dockerfile Pattern
 
-Each microservice has its own isolated PostgreSQL instance. They do not share a database server, which is consistent with the microservices principle of data isolation — each service owns its data and is the only service that accesses it directly.
-
-| Service | Database Name | Port (host) |
-|---|---|---|
-| book-service | `books_db` | 5432 |
-| user-service | `users_db` | 5433 |
-| order-service | `orders_db` | 5434 |
-
-### Schema Management
-
-Schema creation is handled in-process at service startup via the `createTable()` function in each service's `database/db.go`. The queries use `CREATE TABLE IF NOT EXISTS`, making the startup idempotent — the table is only created if it does not already exist. This is sufficient for the current stage and avoids the overhead of a migration framework.
-
-### Connection Handling
-
-The standard `database/sql` package is used with the `lib/pq` driver. `database/sql` provides built-in connection pooling by default. The pool is used as-is without explicit tuning (max open connections, max idle connections), which is acceptable for local and development environments. These settings can be configured later for production use.
-
-### Local and Docker Compose Testing
-
-All three services were verified locally and through Docker Compose before this documentation was written. In the Docker Compose setup:
-- Each PostgreSQL instance runs as a separate container with a named volume for persistence.
-- Services connect to their respective databases using the service name as the hostname (e.g., `books_db`, `users_db`, `orders_db`), which is resolved by Docker's internal DNS.
-- Environment variables are passed to each service container, overriding any `.env` defaults.
-
----
-
-## Component 3: Containerization
-
-### Task 3.1 — Dockerfiles
-
-Each service uses an identical multi-stage Docker build pattern. The approach is consistent across all three services, with only the binary name, exposed port, and base image tag varying between them.
-
-**Stage 1 — Builder (`golang:1.26.0-alpine`)**
-- Copies `go.mod` and `go.sum` first and runs `go mod download` to cache the dependency layer independently from source changes.
-- Copies the rest of the source and compiles a statically linked binary using `CGO_ENABLED=0` targeting `linux/amd64`.
-
-**Stage 2 — Runtime (`alpine:3.23.3`)**
-- Copies only the compiled binary from the builder stage, excluding the Go toolchain and all source code from the final image.
-- Adds `ca-certificates` to support outbound HTTPS connections (required by order-service when calling other services, and generally recommended).
-- Creates a non-root `appuser` and switches to that user before the entrypoint, following the principle of least privilege.
-- Exposes the relevant port and sets the compiled binary as the container entrypoint.
-
-The resulting images are small and contain no build tooling, source, or unnecessary dependencies.
-
-#### book-service Dockerfile
+All three services use the same multi-stage build - Stage 1 compiles, Stage 2 is a minimal Alpine runtime with only the binary. Example `Dockerfile` for  book-service:
 
 ```dockerfile
-FROM golang:1.26.0-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app/
-
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -374,6 +265,7 @@ FROM alpine:3.23.3
 WORKDIR /root/
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /app/book-service ./
+
 RUN adduser -D appuser
 USER appuser
 
@@ -381,158 +273,404 @@ EXPOSE 8080
 CMD ["./book-service"]
 ```
 
----
+> `CGO_ENABLED=0` produces a fully static binary with no libc dependency, allowing it to run on minimal Alpine.
 
-### Task 3.2 — Docker Compose Setup
+### Docker Compose (Local Development Only)
 
-The `docker-compose.yml` file defines the complete local development environment. It brings up three PostgreSQL containers (one per service), three application containers, configures inter-service networking, and mounts named volumes for database persistence.
+| Container | Host Port | Depends On |
+|---|---|---|
+| books_db | 5432:5432 | — |
+| users_db | 5433:5432 | — |
+| orders_db | 5434:5432 | — |
+| book-service | 8080:8080 | books_db (healthy) |
+| user-service | 8081:8081 | users_db (healthy) |
+| order-service | 8082:8082 | orders_db (healthy), book-service, user-service |
 
-#### Services Defined
-
-| Container | Image / Build | Port (host:container) | Depends On |
-|---|---|---|---|
-| `books_db` | `postgres:13` | `5432:5432` | — |
-| `users_db` | `postgres:13` | `5433:5432` | — |
-| `orders_db` | `postgres:13` | `5434:5432` | — |
-| `book-service` | `./book-service` | `8080:8080` | `books_db` (healthy) |
-| `user-service` | `./user-service` | `8081:8081` | `users_db` (healthy) |
-| `order-service` | `./order-service` | `8082:8082` | `orders_db` (healthy), `book-service` (started), `user-service` (started) |
-
-#### docker-compose.yml
-
-```yaml
-name: microservices-application
-
-services:
-  users_db:
-    image: postgres:13
-    environment:
-      POSTGRES_USER: ${USERS_DB_USER}
-      POSTGRES_PASSWORD: ${USERS_DB_PASSWORD}
-      POSTGRES_DB: ${USERS_DB_NAME}
-    ports:
-      - "${USERS_DB_PORT}:5432"
-    volumes:
-      - users_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  books_db:
-    image: postgres:13
-    environment:
-      POSTGRES_USER: ${BOOKS_DB_USER}
-      POSTGRES_PASSWORD: ${BOOKS_DB_PASSWORD}
-      POSTGRES_DB: ${BOOKS_DB_NAME}
-    ports:
-      - "${BOOKS_DB_PORT}:5432"
-    volumes:
-      - books_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  orders_db:
-    image: postgres:13
-    environment:
-      POSTGRES_USER: ${ORDERS_DB_USER}
-      POSTGRES_PASSWORD: ${ORDERS_DB_PASSWORD}
-      POSTGRES_DB: ${ORDERS_DB_NAME}
-    ports:
-      - "${ORDERS_DB_PORT}:5432"
-    volumes:
-      - orders_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  user-service:
-    build: ./user-service/
-    container_name: user-service
-    ports:
-      - "8081:${USERS_SERVER_PORT}"
-    environment:
-      USERS_DB_HOST: ${USERS_DB_HOST}
-      USERS_DB_PORT: 5432
-      USERS_DB_USER: ${USERS_DB_USER}
-      USERS_DB_PASSWORD: ${USERS_DB_PASSWORD}
-      USERS_DB_NAME: ${USERS_DB_NAME}
-      USERS_SERVER_PORT: ${USERS_SERVER_PORT}
-      SECRET_KEY: ${SECRET_KEY}
-    depends_on:
-      users_db:
-        condition: service_healthy
-
-  book-service:
-    build: ./book-service
-    container_name: book-service
-    ports:
-      - "8080:${BOOKS_SERVER_PORT}"
-    environment:
-      BOOKS_DB_HOST: ${BOOKS_DB_HOST}
-      BOOKS_DB_PORT: 5432
-      BOOKS_DB_USER: ${BOOKS_DB_USER}
-      BOOKS_DB_PASSWORD: ${BOOKS_DB_PASSWORD}
-      BOOKS_DB_NAME: ${BOOKS_DB_NAME}
-      BOOKS_SERVER_PORT: ${BOOKS_SERVER_PORT}
-    depends_on:
-      books_db:
-        condition: service_healthy
-
-  order-service:
-    build: ./order-service/
-    container_name: order-service
-    ports:
-      - "8082:${ORDERS_SERVER_PORT}"
-    environment:
-      ORDERS_DB_HOST: ${ORDERS_DB_HOST}
-      ORDERS_DB_PORT: 5432
-      ORDERS_DB_USER: ${ORDERS_DB_USER}
-      ORDERS_DB_PASSWORD: ${ORDERS_DB_PASSWORD}
-      ORDERS_DB_NAME: ${ORDERS_DB_NAME}
-      ORDERS_SERVER_PORT: ${ORDERS_SERVER_PORT}
-      BOOK_SERVICE_URL: http://book-service:8080
-      USER_SERVICE_URL: http://user-service:8081
-      SECRET_KEY: ${SECRET_KEY}
-    depends_on:
-      orders_db:
-        condition: service_healthy
-      book-service:
-        condition: service_started
-      user-service:
-        condition: service_started
-
-volumes:
-  books_db_data:
-  users_db_data:
-  orders_db_data:
-
-networks:
-  default:
-    driver: bridge
-```
-
-#### Running the Stack Locally
-
-Build and start in detached mode:
+> **Note:** Docker Compose uses different host ports (5432, 5433, 5434) to avoid conflicts on the local machine. In Kubernetes all three databases use port 5432 — they are isolated by separate pods and ClusterIP services.
 
 ```bash
+# Start everything
 docker compose up --build -d
-```
 
-Tear down containers and remove volumes:
-
-```bash
+# Tear down and remove volumes
 docker compose down -v
 ```
 
-Once running, the services are accessible at:
-- book-service: `http://localhost:8080`
-- user-service: `http://localhost:8081`
-- order-service: `http://localhost:8082` 
+---
+
+## Kubernetes Deployment
+
+### Storage Provisioner
+
+If the cluster has no default `StorageClass`, it will cause all PVCs to remain in `Pending` state. Install `rancher/local-path-provisioner` to resolve this.
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+```
+
+Set as default:
+
+```bash
+kubectl patch storageclass local-path \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+```
+
+Verify:
+
+```bash
+kubectl get storageclass
+```
+
+> Without a StorageClass, PVCs stay `Pending` → databases never start → services crash-loop.
+
+### Pod Startup Behaviour
+
+Application services experience 1–2 restarts on first deploy. This is expected:
+
+```
+t=0s    All 6 pods start simultaneously
+t=2s    Services try to connect to database — connection refused (postgres still initialising)
+t=2s    Services crash (Exit Code 1)
+t=30s   Databases ready
+t=31s   Kubernetes restarts services — connect successfully
+t=40s   All 6 pods Running
+```
+
+Kubernetes has no `depends_on`. Services are designed to crash-and-restart until dependencies are ready.
+
+---
+
+## Helm Chart
+
+### Structure
+
+```
+book-ordering/
+├── Chart.yaml
+├── values.yaml
+└── templates/
+    ├── namespace.yaml
+    ├── secrets.yaml
+    ├── configmap.yaml
+    ├── books-db.yaml
+    ├── users-db.yaml
+    ├── orders-db.yaml   
+    ├── book-service.yaml  
+    ├── user-service.yaml 
+    ├── order-service.yaml 
+    └── ingress.yaml
+```
+
+### Key `values.yaml` Settings
+
+```yaml
+images:
+  bookService:
+    repository: justnotmirr/book-service
+    tag: v1.3
+    pullPolicy: Always
+  userService:
+    repository: justnotmirr/user-service
+    tag: v1.3
+    pullPolicy: Always
+  orderService:
+    repository: justnotmirr/order-service
+    tag: v1.3
+    pullPolicy: Always
+  postgres:
+    repository: postgres
+    tag: "15"
+    pullPolicy: IfNotPresent
+
+database:
+  books:
+    host: books-db 
+    name: books_db
+    user: postgres
+    port: "5432" 
+
+ingress:
+  host: book-ordering.dynv6.net
+  className: nginx
+```
+
+### Secrets
+
+db-secret contains `base64` of postgres-password and the jwt-secret.
+
+```yaml
+postgres-password: cGFzc3dvcmQ= 
+jwt-secret: aTV1MGd5VVJKcg==  
+```
+
+To generate a base64 value:
+
+```bash
+echo -n 'your-value' | base64
+```
+
+Secrets are injected per-service:
+
+| Service | Env Var | Secret Key |
+|---|---|---|
+| book-service | BOOKS_DB_PASSWORD | postgres-password |
+| user-service | USERS_DB_PASSWORD | postgres-password |
+| user-service | SECRET_KEY | jwt-secret |
+| order-service | ORDERS_DB_PASSWORD | postgres-password |
+| order-service | SECRET_KEY | jwt-secret |
+| All databases | POSTGRES_PASSWORD | postgres-password |
+
+### Health Probes
+
+| Service | Liveness Path | Readiness Path | Notes |
+|---|---|---|---|
+| book-service | /books/health | /books/health | HTTP GET on port 8080 |
+| user-service | /users/health | /users/health | HTTP GET on port 8081 |
+| order-service | /orders/health | /orders/health | HTTP GET on port 8082|
+| *-db | pg_isready -U postgres | pg_isready -U postgres | exec probe |
+
+> Health and metrics routes in `order-service` are registered **outside** the auth middleware group so Kubernetes probes don't require a JWT token.
+
+### Ingress Routing
+
+Path-based routing with regex:
+
+```yaml
+/books(/|$)(.*)   → book-service:8080    (ImplementationSpecific)
+/users(/|$)(.*)   → user-service:8081    (ImplementationSpecific)
+/login            → user-service:8081    (Exact)
+/orders(/|$)(.*)  → order-service:8082   (ImplementationSpecific)
+```
+
+---
+
+## Deployment Procedure
+
+### 1. Build and Push Images
+
+Build (local machine):
+```powershell
+docker build -t justnotmirr/book-service:v1.3 ./book-service
+docker build -t justnotmirr/user-service:v1.3 ./user-service
+docker build -t justnotmirr/order-service:v1.3 ./order-service
+```
+
+Push to Docker Hub:
+
+```powershell
+docker push justnotmirr/book-service:v1.3
+docker push justnotmirr/user-service:v1.3
+docker push justnotmirr/order-service:v1.3
+```
+
+### 2. Copy Chart to Jump Server
+
+```powershell
+scp -r .\book-ordering\ azureuser@<jump-server-public-ip>:~/
+```
+
+### 3. Validate
+
+```bash
+helm lint ./book-ordering/
+helm install book-ordering ./book-ordering/ --dry-run=client --debug
+```
+
+### 4. Deploy
+
+```bash
+helm install book-ordering ./book-ordering/
+
+kubectl get pods -n book-ordering -w
+```
+
+### 5. Upgrade After Changes
+
+Update the image tag in values.yaml, copy chart, then run:
+
+```bash
+helm upgrade book-ordering ./book-ordering/
+```
+
+Verify the right image is running:
+
+```bash
+kubectl get deployment book-service -n book-ordering \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+```
+
+### 6. Access
+
+Port-forward ingress on jump server:
+
+```bash
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 &
+```
+Test with Host header or directly via domain:
+
+```bash
+curl -H "Host: book-ordering.dynv6.net" http://localhost:8080/books/health
+
+curl http://book-ordering.dynv6.net/books/health
+```
+
+### 7. To Uninstall
+
+```bash
+helm uninstall book-ordering
+kubectl delete pvc -n book-ordering --all
+kubectl delete namespace book-ordering
+```
+
+---
+
+## API Testing
+
+**Step 1 — Health Checks**
+
+```
+GET http://book-ordering.dynv6.net/books/health
+GET http://book-ordering.dynv6.net/users/health
+GET http://book-ordering.dynv6.net/orders/health
+```
+
+**Step 2 — Register a User**
+
+```
+POST http://book-ordering.dynv6.net/users
+Content-Type: application/json
+
+{
+  "username": "<username>",
+  "email": "<email>",
+  "password": "<password>"
+}
+```
+
+**Step 3 — Login and Copy Token**
+
+Login using the created username and password. Copy the token from the response.
+```
+POST http://book-ordering.dynv6.net/login
+Content-Type: application/json
+
+{
+  "username": "<username>",
+  "password": "<password>"
+}
+```
+Response: `{ "token": "eyJhbGc...", "user": { "id": 1, ... } }`
+
+**Step 4 — Create a Book**
+
+```
+POST http://book-ordering.dynv6.net/books
+Content-Type: application/json
+
+{
+  "title": "<book-name>",
+  "author": "<Alan Donovan>",
+  "price": <49.99>,
+  "stock": <100>
+}
+```
+
+**Step 5 — Create an Order**
+
+```
+POST http://book-ordering.dynv6.net/orders
+Authorization: Bearer eyJhbGc...
+Content-Type: application/json
+
+{
+  "book_id": <1>,
+  "quantity": <2>
+}
+```
+
+**Step 6 — Get Orders for User**
+
+```
+GET http://book-ordering.dynv6.net/orders/user/1
+Authorization: Bearer eyJhbGc...
+```
+
+1 = your user_id from the login response.
+Using another user's ID returns 403 Forbidden.
+
+### Common Error Responses
+
+| Code | Error | Cause | Fix |
+|---|---|---|---|
+| 401 | authorization header required | Missing Bearer token | Add `Authorization: Bearer <token>` header |
+| 403 | cannot view another user's orders | JWT user_id != URL user ID | Use your own user ID |
+| 400 | insufficient stock | Quantity > book.Stock | Reduce quantity or increase stock |
+| 503 | user/book service unavailable | order-service can't reach dependency | Check pod logs and DNS |
+
+---
+
+## Known Limitations
+
+- **Init containers** — Services crash 1-2 times on first deploy waiting for postgres.
+- **Database migrations** — Schema is created via `CREATE TABLE IF NOT EXISTS` on startup.
+- **Secret management** — Secrets are base64-encoded in the Helm chart.
+
+---
+
+## Debugging Reference
+
+Pod status:
+
+```bash
+kubectl get pods -n book-ordering
+kubectl get pods -n book-ordering -w
+```
+
+Logs:
+
+```bash
+kubectl logs -n book-ordering deployment/book-service
+kubectl logs -n book-ordering deployment/user-service
+kubectl logs -n book-ordering deployment/order-service
+```
+
+Verify routes actually registered:
+
+```bash
+kubectl logs -n book-ordering deployment/order-service | grep "GIN-debug"
+```
+
+Verify image tag deployed:
+
+```bash
+kubectl get deployment book-service -n book-ordering \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+```
+
+Pod details and events:
+
+```bash
+kubectl describe pod <pod-name> -n book-ordering
+```
+
+PVC and storage:
+
+```bash
+kubectl get pvc -n book-ordering
+kubectl get storageclass
+```
+
+Services and ingress:
+
+```bash
+kubectl get svc -n book-ordering
+kubectl get ingress -n book-ordering
+```
+
+Helm:
+
+```bash
+helm list
+helm history book-ordering
+helm rollback book-ordering 1
+```
