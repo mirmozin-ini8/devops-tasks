@@ -44,7 +44,7 @@ spec:
                         memory: {{ .Values.resources.orderService.limits.memory }}
                 livenessProbe:
                     httpGet:
-                        path: /health
+                        path: /books/health
                         port: {{ .Values.ports.orderService }}
 
                     initialDelaySeconds: 15
@@ -53,7 +53,7 @@ spec:
 
                 readinessProbe:
                     httpGet:
-                        path: /health
+                        path: /books/health
                         port: {{ .Values.ports.orderService }}
                     initialDelaySeconds: 10
                     periodSeconds: 5

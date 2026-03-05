@@ -479,7 +479,9 @@ helm install book-ordering ./book-ordering/ --dry-run=client --debug
 ### 4. Deploy
 
 ```bash
-helm install book-ordering ./book-ordering/
+helm install book-ordering ./book-ordering/ \
+  --namespace book-ordering \
+  --create-namespace
 
 kubectl get pods -n book-ordering -w
 ```
@@ -489,7 +491,8 @@ kubectl get pods -n book-ordering -w
 Update the image tag in values.yaml, copy chart, then run:
 
 ```bash
-helm upgrade book-ordering ./book-ordering/
+helm upgrade book-ordering ./book-ordering/ \
+  --namespace book-ordering
 ```
 
 Verify the right image is running:
@@ -517,7 +520,7 @@ curl http://book-ordering.dynv6.net/books/health
 ### 7. To Uninstall
 
 ```bash
-helm uninstall book-ordering
+helm uninstall book-ordering -n book-ordering
 kubectl delete pvc -n book-ordering --all
 kubectl delete namespace book-ordering
 ```

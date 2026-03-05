@@ -39,7 +39,7 @@ spec:
                         memory: {{ .Values.resources.bookService.limits.memory }}
                 livenessProbe:
                     httpGet:
-                        path: /health
+                        path: /books/health
                         port: {{ .Values.ports.bookService }}
 
                     initialDelaySeconds: 15
@@ -48,7 +48,7 @@ spec:
 
                 readinessProbe:
                     httpGet:
-                        path: /health
+                        path: /books/health
                         port: {{ .Values.ports.bookService }}
                     initialDelaySeconds: 10
                     periodSeconds: 5
