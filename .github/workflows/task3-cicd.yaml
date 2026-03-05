@@ -91,7 +91,7 @@ jobs:
 
       - name: deploy via helm
         run: |
-            ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
             "helm upgrade --install book-ordering ~/book-ordering \
             --namespace book-ordering \
             --create-namespace \

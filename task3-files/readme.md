@@ -535,4 +535,4 @@ docker compose down -v
 Once running, the services are accessible at:
 - book-service: `http://localhost:8080`
 - user-service: `http://localhost:8081`
-- order-service: `http://localhost:8082`
+- order-service: `http://localhost:8082` 
