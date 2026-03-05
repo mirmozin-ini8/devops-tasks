@@ -100,7 +100,7 @@ Entry point. Loads `.env` if present (falls back gracefully if not), initializes
 #### Environment Variables
 
 ```
-BOOKS_DB_HOST=books_db  
+BOOKS_DB_HOST=books_db
 BOOKS_DB_PORT=5432
 BOOKS_DB_USER=postgres
 BOOKS_DB_PASSWORD=password
