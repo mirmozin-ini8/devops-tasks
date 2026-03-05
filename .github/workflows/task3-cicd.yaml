@@ -20,10 +20,17 @@ jobs:
         uses: actions/setup-go@v5
         with:
             go-version: '1.26.0'
-            cache-dependency-path: |
-                task3-files/book-service/go.sum
-                task3-files/user-service/go.sum
-                task3-files/order-service/go.sum
+            cache: false
+
+      - name: cache go modules
+        uses: actions/cache@v4
+        with:
+            path: |
+                ~/go/pkg/mod
+                ~/.cache/go-build
+            key: ${{ runner.os }}-go-${{ matrix.service }}-${{ hashFiles(format('task3-files/{0}/go.sum', matrix.service)) }}
+            restore-keys: |
+                ${{ runner.os }}-go-${{ matrix.service }}-
 
       - name: lint and test
         working-directory: ./task3-files/${{ matrix.service }} 
