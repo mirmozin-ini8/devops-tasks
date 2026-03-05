@@ -91,15 +91,15 @@ jobs:
 
       - name: deploy via helm
         run: |
-          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
             "helm upgrade --install book-ordering ~/book-ordering \
-             --namespace book-ordering \
-             --create-namespace \
-             --set images.bookService.tag=${TAG} \
-             --set images.userService.tag=${TAG} \
-             --set images.orderService.tag=${TAG} \
-             --atomic \
-             --wait"
+            --namespace book-ordering \
+            --create-namespace \
+            --set images.bookService.tag=${TAG} \
+            --set images.userService.tag=${TAG} \
+            --set images.orderService.tag=${TAG} \
+            --rollback-on-failure \
+            --wait"
 
       - name: verify rollout
         run: |

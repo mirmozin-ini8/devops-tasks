@@ -381,56 +381,6 @@ EXPOSE 8080
 CMD ["./book-service"]
 ```
 
-#### user-service Dockerfile
-
-```dockerfile
-FROM golang:1.26.0-alpine AS builder
-
-WORKDIR /app/
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o user-service .
-
-FROM alpine:3.23.3
-
-WORKDIR /root/
-RUN apk --no-cache add ca-certificates
-COPY --from=builder /app/user-service ./
-RUN adduser -D appuser
-USER appuser
-
-EXPOSE 8081
-CMD ["./user-service"]
-```
-
-#### order-service Dockerfile
-
-```dockerfile
-FROM golang:1.26.0-alpine AS builder
-
-WORKDIR /app/
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o order-service .
-
-FROM alpine:latest
-
-WORKDIR /root/
-RUN apk --no-cache add ca-certificates
-COPY --from=builder /app/order-service .
-RUN adduser -D appuser
-USER appuser
-
-EXPOSE 8082
-CMD ["./order-service"]
-```
-
 ---
 
 ### Task 3.2 — Docker Compose Setup
