@@ -6,12 +6,12 @@ The project establishes a secure, scalable Kubernetes environment suitable for h
 
 ## Table of Contents
 [Architecture Overview](#architecture-overview)  
-[Deploy Kubernetes Using kubeadm](#task-1-deploy-kubernetes-using-kubeadm)  
-[Configure Jump Server Access](#task-2-configure-jump-server-access)   
-[Configure MetalLB with Public IP](#task-3-configure-metallb-with-public-ip)  
-[Deploy Application with Ingress](#task-4-deploy-application-with-ingress)  
-[Set Up Port Forwarding For Ingress](#task-4a-set-up-port-forwarding-for-ingress)  
-[Create CI/CD Pipeline with GitHub Actions](#task-6-create-cicd-pipeline-with-github-actions)  
+[Task 1: Deploy Kubernetes Using kubeadm](#task-1-deploy-kubernetes-using-kubeadm)  
+[Task 2: Configure Jump Server Access](#task-2-configure-jump-server-access)   
+[Task 3: Configure MetalLB with Public IP](#task-3-configure-metallb-with-public-ip)  
+[Task 4: Deploy Application with Ingress](#task-4-deploy-application-with-ingress)  
+[Task 4A: Set Up Port Forwarding For Ingress](#task-4a-set-up-port-forwarding-for-ingress)  
+[Task 5: Create CI/CD Pipeline with GitHub Actions](#task-6-create-cicd-pipeline-with-github-actions)  
 [Common Commands Reference](#common-commands-reference)  
 [Known Limitations and Considerations](#known-limitations-and-considerations)  
 
