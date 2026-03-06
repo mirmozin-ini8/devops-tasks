@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"order-service/client"
 	"order-service/database"
+	"order-service/metrics"
 	"order-service/model"
 	"order-service/repository"
 	"strconv"
@@ -64,6 +65,9 @@ func CreateOrder(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create order"})
 		return
 	}
+
+	metrics.OrdersCreatedTotal.Inc()
+	metrics.OrdersRevenueTotal.Add(totalPrice)
 
 	c.JSON(http.StatusCreated, order)
 }

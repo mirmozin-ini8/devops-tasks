@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"user-service/database"
+	"user-service/metrics"
 	"user-service/model"
 	"user-service/repository"
 
@@ -42,6 +43,8 @@ func Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
 	}
+
+	metrics.UsersRegisteredTotal.Inc()
 
 	c.JSON(http.StatusCreated, user)
 }

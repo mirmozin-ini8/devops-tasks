@@ -2,6 +2,7 @@ package handler
 
 import (
 	"book-service/database"
+	"book-service/metrics"
 	"book-service/model"
 	"book-service/repository"
 	"net/http"
@@ -54,6 +55,7 @@ func CreateBook(c *gin.Context) {
 		return
 	}
 
+	metrics.BooksCreatedTotal.Inc()
 	c.JSON(http.StatusCreated, book)
 }
 
