@@ -4,11 +4,13 @@ import (
 	"log"
 	"order-service/database"
 	"order-service/handler"
+	"order-service/metrics"
 	"order-service/middleware"
 	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -19,12 +21,11 @@ func main() {
 	database.Connect()
 
 	router := gin.Default()
+	router.Use(middleware.MetricMiddleware())
 
 	orders := router.Group("/orders")
 	orders.GET("/health", handler.HealthCheck)
-	orders.GET("/metrics", func(c *gin.Context) {
-		c.String(200, "tbd\n")
-	})
+	orders.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	protected := orders.Group("")
 	protected.Use(middleware.RequireAuth)
@@ -34,6 +35,7 @@ func main() {
 		protected.GET("/:id", handler.GetOrderByID)
 	}
 
+	_ = metrics.OrdersCreatedTotal
 	port := os.Getenv("ORDERS_SERVER_PORT")
 	if port == "" {
 		port = "8082"

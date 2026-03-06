@@ -513,33 +513,6 @@ Liveness and readiness probes are configured on all six workloads. Application s
 
 Health and metrics routes in order-service are registered outside the auth middleware group so that Kubernetes probes do not require a JWT token.
 
-#### Pod Startup Behaviour
-
-Application services will restart once or twice on the first deployment. This is expected behaviour because Kubernetes has no `depends_on` equivalent — all six pods start simultaneously, and the application services will fail their initial database connection while PostgreSQL is still initialising.
-
-```
-t=0s    All 6 pods start simultaneously
-t=2s    Services attempt database connection — refused (postgres still initialising)
-t=2s    Services exit (Exit Code 1)
-t=30s   Databases become ready
-t=31s   Kubernetes restarts services — connection succeeds
-t=40s   All 6 pods Running
-```
-
-The services are designed to crash-and-restart until their dependencies are available.
-
-#### Verification
-
-Watch all pods come up in the `book-ordering` namespace:
-
-```bash
-kubectl get pods -n book-ordering -w
-```
-
-All six pods should reach `Running` status. The application service pods may show 1–2 restarts before stabilising, which is expected.
-
-![book-ordering-pods.png](./screenshots/book-ordering-pods.png)
-
 ---
 
 ### Task 4.2: Configure ConfigMaps and Secrets
@@ -739,11 +712,30 @@ helm install book-ordering ./book-ordering/ \
   --create-namespace
 ```
 
-Watch the pods come up:
+#### Pod Startup Behaviour
+
+Application services will restart once or twice on the first deployment. This is expected behaviour because Kubernetes has no `depends_on` equivalent - all six pods start simultaneously, and the application services will fail their initial database connection while PostgreSQL is still initialising.
+
+```
+t=0s    All 6 pods start simultaneously
+t=2s    Services attempt database connection — refused (postgres still initialising)
+t=2s    Services exit (Exit Code 1)
+t=30s   Databases become ready
+t=31s   Kubernetes restarts services — connection succeeds
+t=40s   All 6 pods Running
+```
+
+The services are designed to crash-and-restart until their dependencies are available.
+
+Watch all pods come up in the `book-ordering` namespace:
 
 ```bash
 kubectl get pods -n book-ordering -w
 ```
+
+All six pods should reach `Running` status. The application service pods may show 1–2 restarts before stabilising, which is expected.
+
+![book-ordering-pods.png](./screenshots/book-ordering-pods.png)
 
 #### Step 4: Access the Application
 
@@ -1011,6 +1003,251 @@ kubectl describe deployment order-service -n book-ordering | grep Image
 ```
 
 The image shown for each deployment should match the DockerHub image with the Git SHA tag built during the pipeline run.
+
+---
+
+## Component 6: Monitoring
+
+### Task 6.1: Deploy Prometheus Operator
+
+#### Objective
+
+Deploy the full Prometheus monitoring stack on the cluster using the kube-prometheus-stack Helm chart, which installs the Prometheus Operator, a Prometheus instance, Grafana, and Alertmanager in a single install.
+
+#### Prerequisites
+
+- Helm installed on the Jump Server with internet access
+- local-path StorageClass set as default (already configured in Task 4.1)
+- monitoring namespace created before applying the secret
+
+#### How the Operator Pattern Works
+
+Instead of managing Prometheus configuration files manually, you create Kubernetes CRDs and the Operator automatically updates Prometheus. The two CRDs used in this project are:
+
+- **ServiceMonitor** — tells Prometheus which services to scrape, at what path and interval
+- **PrometheusRule** — defines alerting rules in PromQL that fire when conditions are met
+
+#### Components Installed
+
+| Component | Description |
+|---|---|
+| Prometheus Operator | Watches for ServiceMonitor and PrometheusRule CRDs and configures Prometheus automatically |
+| Prometheus | Scrapes and stores time-series metrics |
+| Grafana | Visualization layer, pre-configured with Prometheus as a data source |
+| Alertmanager | Receives firing alerts from Prometheus and routes them to Slack |
+| kube-state-metrics | Exposes Kubernetes object metrics (pod status, deployment replicas, etc.) |
+| node-exporter | Exposes host-level metrics (CPU, memory, disk) from each node |
+
+#### Step 1: Add Helm Repo
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+```
+
+#### Step 2: Create Namespace and Grafana Secret
+
+Create the monitoring namespace first, then store Grafana credentials in a Kubernetes secret. This avoids hardcoding credentials in the values file or in git.
+```bash
+kubectl create namespace monitoring
+
+kubectl create secret generic grafana-admin-secret -n monitoring \
+  --from-literal=admin-user= \
+  --from-literal=admin-password=
+```
+
+#### Step 3: Create the Values File
+```bash
+nano ~/kube-prometheus-stack-values.yaml
+```
+```yaml
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: "9GB"
+    resources:
+      requests:
+        cpu: 200m
+        memory: 400Mi
+      limits:
+        cpu: 500m
+        memory: 800Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleNamespaceSelector: {}
+    ruleSelector: {}
+
+grafana:
+  enabled: true
+  admin:
+    existingSecret: grafana-admin-secret
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: ClusterIP
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+```
+
+Key settings explained:
+
+| Setting | Value | Reason |
+|---|---|---|
+| retention | 15d | Keep metrics for 15 days, older data deleted automatically |
+| retentionSize | 9GB | Hard disk cap, stays below the 10Gi PVC to leave headroom |
+| storage: 10Gi | local-path PVC | Persists metrics to disk, without this all data is lost on pod restart |
+| serviceMonitorSelectorNilUsesHelmValues: false | false | Allows Prometheus to discover ServiceMonitors from all namespaces, not just this Helm release |
+| serviceMonitorNamespaceSelector: {} | empty | Matches all namespaces including book-ordering |
+| existingSecret | grafana-admin-secret | Reads Grafana credentials from a secret instead of hardcoding them |
+| kubeControllerManager/Scheduler/Etcd/Proxy | disabled | These components are unreachable on kubeadm/Azure setups, leaving them enabled causes permanent DOWN targets in Prometheus UI |
+
+#### Step 4: Install
+```bash
+helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --values ~/kube-prometheus-stack-values.yaml \
+  --wait \
+  --timeout 10m
+```
+
+> `--wait` blocks until all pods are ready. This takes 3-5 minutes on first install.
+
+#### Step 5: Verify Pods
+```bash
+kubectl get pods -n monitoring
+```
+
+Expected output — all pods Running:
+```
+NAME                                                     READY   STATUS
+alertmanager-kube-prometheus-stack-alertmanager-0        2/2     Running
+kube-prometheus-stack-grafana-xxx                        3/3     Running
+kube-prometheus-stack-kube-state-metrics-xxx             1/1     Running
+kube-prometheus-stack-operator-xxx                       1/1     Running
+kube-prometheus-stack-prometheus-node-exporter-xxx       1/1     Running
+prometheus-kube-prometheus-stack-prometheus-0            2/2     Running
+```
+
+#### Step 6: Open Ports in Azure NSG
+
+Go to Azure Portal → <jump-server-VM> → Networking → Add inbound port rule:
+
+`Source: Any`  
+`Destination port: 9090`  
+`Protocol: TCP`  
+`Action: Allow`  
+`Priority: 310`  
+
+Repeat for port 3000.
+
+#### Step 7: Persistent Port-Forward via systemd
+
+Make port-forwarding permanent using systemd services on the Jump Server for Prometheus and Grafana:
+
+Create the Prometheus service:
+```bash
+sudo nano /etc/systemd/system/prometheus-portforward.service
+```
+```ini
+[Unit]
+Description=Port-forward for Prometheus UI (9090)
+After=network-online.target k8s-portforward.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=KUBECONFIG=/root/.kube/config
+ExecStart=/usr/local/bin/kubectl port-forward svc/prometheus-operated -n monitoring 9090:9090 --address 0.0.0.0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Create the Grafana service:
+```bash
+sudo nano /etc/systemd/system/grafana-portforward.service
+```
+```ini
+[Unit]
+Description=Port-forward for Grafana UI (3000)
+After=network-online.target k8s-portforward.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=KUBECONFIG=/root/.kube/config
+ExecStart=/usr/local/bin/kubectl port-forward svc/kube-prometheus-stack-grafana -n monitoring 3000:80 --address 0.0.0.0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start both:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable prometheus-portforward.service grafana-portforward.service
+sudo systemctl start prometheus-portforward.service grafana-portforward.service
+```
+
+Verify:
+```bash
+sudo systemctl status prometheus-portforward.service
+sudo systemctl status grafana-portforward.service
+sudo ss -tlnp | grep -E '9090|3000'
+```
+
+#### Step 8: Access the UIs
+
+Access directly via the Jump Server public IP.
+
+Prometheus:
+
+```bash
+http://<jump-server-ip>:9090
+```
+
+Grafana:
+
+```bash
+http://<jump-server-ip>:3000
+```
+
+In Prometheus, go to Status > Targets to confirm Kubernetes cluster targets are being scraped. In Grafana, go to Dashboards to see the pre-built Kubernetes dashboards, and Connections > Data sources to confirm Prometheus is configured as a data source.
+
+> Opening these ports exposes Prometheus and Grafana publicly. Prometheus has no authentication by default, anyone with the URL can query the metrics. For production use, close these ports and use SSH tunnels or an authenticated reverse proxy instead.
 
 ---
 
