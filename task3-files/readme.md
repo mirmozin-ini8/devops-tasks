@@ -1251,6 +1251,137 @@ In Prometheus, go to Status > Targets to confirm Kubernetes cluster targets are 
 
 ---
 
+### Task 6.2: Implement Service Metrics
+
+#### Objective
+
+Add real Prometheus-compatible metrics endpoints to all three services, replacing the placeholder `tbd` response. Expose HTTP request metrics automatically via middleware, and increment business-specific counters at the relevant call sites.
+
+#### Prerequisites
+
+- `prometheus/client_golang` already present in `go.mod` for all three services
+- Services deployed and health endpoints verified working
+
+#### Dependencies
+
+No new dependencies required. `github.com/prometheus/client_golang v1.23.2` was already present in `go.mod`. The following packages from it are used:
+
+```
+github.com/prometheus/client_golang/prometheus
+github.com/prometheus/client_golang/prometheus/promauto
+github.com/prometheus/client_golang/prometheus/promhttp
+```
+
+---
+
+#### Changes Per Service
+
+The same set of changes applies to all three services. The only differences are the import paths, metric names, and business counters which are specific to each service.
+
+---
+
+##### 1. New file: `metrics/metrics.go`
+
+Create a new `metrics/` directory in each service with a single `metrics.go` file. This file defines and registers all Prometheus metrics for the service using `promauto`, which registers metrics automatically on package import without needing manual `prometheus.MustRegister` calls.
+
+Metrics defined in all three services:
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `http_requests_total` | Counter | method, path, status | Total HTTP requests by method, route, and response code |
+| `http_request_duration_seconds` | Histogram | method, path | Request duration using default Prometheus buckets |
+| `http_requests_in_flight` | Gauge | none | Current number of requests being processed |
+
+Business metrics per service:
+
+| Service | Metric | Type | Description |
+|---|---|---|---|
+| book-service | `books_created_total` | Counter | Total books created via POST /books |
+| user-service | `users_registered_total` | Counter | Total users registered via POST /users |
+| order-service | `orders_created_total` | Counter | Total orders created via POST /orders |
+| order-service | `orders_revenue_total` | Counter | Total revenue from confirmed orders |
+
+---
+
+##### 2. New file: `middleware/metrics.go`
+
+Create a new `metrics.go` file inside the existing `middleware/` directory. This implements a Gin middleware function `MetricsMiddleware()` that wraps every request and records the three HTTP metrics automatically.
+
+What the middleware does per request:
+- Increments `http_requests_in_flight` gauge on entry, decrements on exit
+- Records `http_requests_total` counter after the handler runs, using the final
+  status code from `c.Writer.Status()`
+- Records `http_request_duration_seconds` histogram using `c.FullPath()` so dynamic
+  routes like `/:id` are grouped correctly rather than creating a separate label per ID
+- Skips recording for the `/metrics` path itself to avoid self-referential metrics
+
+---
+
+##### 3. Changes to `main.go`
+
+Three changes in each service's `main.go`:
+
+**Add imports:**
+```go
+"/metrics"
+"github.com/prometheus/client_golang/prometheus/promhttp"
+```
+
+**Register the middleware** before any route definitions:
+```go
+router.Use(middleware.MetricsMiddleware())
+```
+
+**Replace the placeholder metrics route** with the Prometheus handler:
+```go
+books.GET("/metrics", gin.WrapH(promhttp.Handler()))
+```
+
+`gin.WrapH` wraps the standard `http.Handler` returned by `promhttp.Handler()` into
+a Gin-compatible handler. `promhttp.Handler()` serves all registered metrics in the
+Prometheus text exposition format.
+
+---
+
+##### 4. Changes to handler files
+
+Increment business counters at the point of successful creation in each handler. Add before `statusCreated`:
+**`handler/book.go` - `CreateBook` function:**
+```go
+metrics.BooksCreatedTotal.Inc()
+```
+
+**`handler/user.go` - `Register` function:**
+```go
+metrics.UsersRegisteredTotal.Inc()
+```
+
+**`handler/order.go` — `CreateOrder` function:**
+```go
+metrics.OrdersCreatedTotal.Inc()
+metrics.OrdersRevenueTotal.Add(totalPrice)
+```
+
+`totalPrice` is already computed earlier in the handler as
+`book.Price * float64(req.Quantity)` and is passed directly to the revenue counter.
+
+---
+
+#### Verification
+
+After deploying the updated images, test each metrics endpoint:
+```bash
+curl http://book-ordering.dynv6.net/books/metrics
+curl http://book-ordering.dynv6.net/users/metrics
+curl http://book-ordering.dynv6.net/orders/metrics
+```
+ 
+Make a few requests to the API and re-check the metrics endpoint to confirm counters are incrementing correctly.
+
+Expected output:
+
+![metrics-endpoint-output](screenshots/metrics-endpoint-output.png)
+
 ## API Testing
 
 The following steps test the complete application flow end to end. All requests are made against the domain. Replace placeholder values with actual values before running.
