@@ -371,6 +371,8 @@ docker push justnotmirr/order-service:v1.3
 
 Confirm the images are available on Docker Hub before proceeding to deployment. Each image should be listed under the account at hub.docker.com with the correct tag.
 
+![dockerhub-images.png](./screenshots/dockerhub-images.png)
+
 ---
 
 ### Task 3.2: Docker Compose Setup
@@ -399,13 +401,15 @@ Database containers are configured with a `pg_isready` health check. Application
 
 #### Running the Stack
 
-Start all containers in detached mode:
+To start all containers in detached mode:
 
 ```bash
 docker compose up --build -d
 ```
 
-Tear down all containers and remove volumes:
+![dockercompose-build.png](./screenshots/dockercompose-build.png)
+
+To tear down all containers and remove volumes:
 
 ```bash
 docker compose down -v
@@ -421,7 +425,13 @@ curl http://localhost:8081/users/health
 curl http://localhost:8082/orders/health
 ```
 
-Each endpoint should return `{"status":"ok","service":"<service-name>"}`.
+Expected Output:
+```bash
+{
+    "service": "<service-name>",
+    "status": "ok"
+}
+```
 
 ---
 
@@ -484,7 +494,11 @@ Verify the StorageClass is marked as default:
 kubectl get storageclass
 ```
 
-The output should show `local-path (default)` in the NAME column.
+Expected Output:
+```bash
+NAME                   PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+local-path (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  22h
+```
 
 #### Health Probes
 
@@ -523,6 +537,8 @@ kubectl get pods -n book-ordering -w
 ```
 
 All six pods should reach `Running` status. The application service pods may show 1–2 restarts before stabilising, which is expected.
+
+![book-ordering-pods.png](./screenshots/book-ordering-pods.png)
 
 ---
 
@@ -597,6 +613,8 @@ Both resources should be listed. To verify the Secret contains the expected keys
 kubectl describe secret db-secret -n book-ordering
 ```
 
+![db-secret-describe.png](./screenshots/db-secret-describe.png)
+
 ---
 
 ### Task 4.3: Configure Ingress
@@ -631,6 +649,13 @@ kubectl get svc -n ingress-nginx
 ```
 
 Wait until the `EXTERNAL-IP` column shows an IP address rather than `<pending>`.
+
+Expected Output:
+```bash
+NAME                                 TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
+ingress-nginx-controller             LoadBalancer   10.105.136.229   10.0.0.10     80:30662/TCP,443:32613/TCP   6d20h
+ingress-nginx-controller-admission   ClusterIP      10.104.107.24    <none>        443/TCP                      6d20h
+```
 
 #### Ingress Routing Configuration
 
@@ -972,6 +997,8 @@ git push origin main
 ```
 
 If this commit does not include changes under `task3-files/`, the pipeline will not trigger automatically. To trigger it manually, go to the GitHub repository → Actions tab → select `github-actions-cicd` → click Run workflow.
+
+![github-actions-workflow.png](./screenshots/github-actions-workflow.png)
 
 #### Verification
 
