@@ -7,16 +7,15 @@ A microservices-based book ordering application built with Go (Gin), deployed on
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
-- [Services](#services)
 - [Infrastructure](#infrastructure)
-- [Microservices Development](#microservices-development)
-- [Containerization](#containerization)
-- [Kubernetes Deployment](#kubernetes-deployment)
-- [Helm Chart](#helm-chart)
-- [Deployment Procedure](#deployment-procedure)
+- [Component 1: Microservices Development](#component-1-microservices-development)
+- [Component 2: Database Configuration](#component-2-database-configuration)
+- [Component 3: Containerization](#component-3-containerization)
+- [Component 4: Kubernetes Deployment](#component-4-kubernetes-deployment)
+- [Component 5: CI/CD Pipeline](#component-5-cicd-pipeline)
 - [API Testing](#api-testing)
-- [Known Limitations](#known-limitations)
 - [Debugging Reference](#debugging-reference)
+- [Known Limitations](#known-limitations)
 
 ---
 
@@ -44,19 +43,6 @@ USER_SERVICE_URL = http://user-service:8081
 
 ---
 
-## Services
-
-| Service | Port | Database | Image |
-|---|---|---|---|
-| book-service | 8080 | books_db | justnotmirr/book-service:v1.3 |
-| user-service | 8081 | users_db | justnotmirr/user-service:v1.3 |
-| order-service | 8082 | orders_db | justnotmirr/order-service:v1.3.1 |
-| books-db | 5432 | books_db | postgres:15 |
-| users-db | 5432 | users_db | postgres:15 |
-| orders-db | 5432 | orders_db | postgres:15 |
-
----
-
 ## Infrastructure
 
 | Component | Value |
@@ -67,12 +53,12 @@ USER_SERVICE_URL = http://user-service:8081
 | CNI | Flannel |
 | Ingress | NGINX (ingress-nginx) |
 | Storage | rancher/local-path |
-| Helm | v4.1.1 | 
+| Helm | v4.1.1 |
 | Domain | book-ordering.dynv6.net |
 
 ---
 
-## Microservices Development
+## Component 1: Microservices Development
 
 ### Technology Stack
 
@@ -80,31 +66,29 @@ USER_SERVICE_URL = http://user-service:8081
 |---|---|
 | Language | Go 1.22+ |
 | Web Framework | Gin |
-| Database driver | lib/pq (PostgreSQL) |
+| Database Driver | lib/pq (PostgreSQL) |
 | Authentication | golang-jwt/jwt/v5 |
-| Password hashing | golang.org/x/crypto/bcrypt |
-| Env config | joho/godotenv |
+| Password Hashing | golang.org/x/crypto/bcrypt |
+| Env Config | joho/godotenv |
 | Containerization | Docker multi-stage builds |
 
 ---
 
-### book-service
+### Task 1.1: book-service
 
-Manages the book catalog. Full CRUD on books backed by `books_db`.
+#### Objective
 
-**API Endpoints**
+Create a RESTful API for book catalog management with full CRUD operations backed by a dedicated PostgreSQL database.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | /books/health | No | Health check |
-| GET | /books/metrics | No | Metrics placeholder |
-| GET | /books | No | List all books |
-| GET | /books/:id | No | Get a specific book |
-| POST | /books | No | Create a new book |
-| PUT | /books/:id | No | Partial update |
-| DELETE | /books/:id | No | Delete a book |
+#### Prerequisites
 
-**Database Schema**
+- Go 1.22+ installed
+- PostgreSQL instance accessible at the configured host and port
+- Environment variables set for database connection and server port
+
+#### Database Schema
+
+The `books` table is created automatically on service startup using `CREATE TABLE IF NOT EXISTS`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS books (
@@ -117,7 +101,19 @@ CREATE TABLE IF NOT EXISTS books (
 );
 ```
 
-**Environment Variables**
+#### API Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | /books/health | No | Health check |
+| GET | /books/metrics | No | Metrics placeholder |
+| GET | /books | No | List all books |
+| GET | /books/:id | No | Get a specific book |
+| POST | /books | No | Create a new book |
+| PUT | /books/:id | No | Partial update |
+| DELETE | /books/:id | No | Delete a book |
+
+#### Environment Variables
 
 ```
 BOOKS_DB_HOST=books-db
@@ -130,22 +126,21 @@ BOOKS_SERVER_PORT=8080
 
 ---
 
-### user-service
+### Task 1.2: user-service
 
-Handles user registration, login, and profile management. Issues JWT tokens on login.
+#### Objective
 
-**API Endpoints**
+Create a user management and authentication service that handles registration, login, and profile updates, issuing signed JWT tokens on successful login.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | /users/health | No | Health check |
-| GET | /users/metrics | No | Metrics placeholder |
-| POST | /users | No | Register a new user |
-| GET | /users/:id | No | Get user details |
-| POST | /login | No | Login — returns JWT token |
-| PUT | /users/:id | Yes — Bearer JWT | Update own profile only |
+#### Prerequisites
 
-**Database Schema**
+- Go 1.22+ installed
+- PostgreSQL instance accessible at the configured host and port
+- `SECRET_KEY` environment variable set — this value must be identical to the one configured in order-service, as both services sign and validate the same JWT tokens
+
+#### Database Schema
+
+The `users` table is created automatically on service startup:
 
 ```sql
 CREATE TABLE IF NOT EXISTS users (
@@ -157,18 +152,31 @@ CREATE TABLE IF NOT EXISTS users (
 );
 ```
 
-**JWT Authentication Flow**
+`UNIQUE` constraints on `username` and `email` enforce uniqueness at the database level.
+
+#### JWT Authentication Flow
 
 1. Client POSTs credentials to `POST /login`
-2. user-service verifies password against bcrypt hash
+2. user-service verifies the password against the stored bcrypt hash
 3. On success, signs a JWT containing `user_id` using `SECRET_KEY`
-4. Client includes token in subsequent requests: `Authorization: Bearer <token>`
-5. Auth middleware validates signature, extracts `user_id`, sets in Gin context
-6. Handlers read `user_id` from context — never from the request body
+4. Client includes the token in subsequent requests: `Authorization: Bearer <token>`
+5. Auth middleware validates the signature, extracts `user_id`, and sets it in the Gin context
+6. Handlers read `user_id` from the context — never from the request body
 
-> **Security note:** `user_id` is always taken from the validated JWT, never from the request body. This prevents users from creating or accessing resources belonging to other users.
+> `user_id` is always taken from the validated JWT, never from the request body. This prevents users from creating or accessing resources belonging to other users.
 
-**Environment Variables**
+#### API Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | /users/health | No | Health check |
+| GET | /users/metrics | No | Metrics placeholder |
+| POST | /users | No | Register a new user |
+| GET | /users/:id | No | Get user details |
+| POST | /login | No | Login — returns JWT token |
+| PUT | /users/:id | Yes — Bearer JWT | Update own profile only |
+
+#### Environment Variables
 
 ```
 USERS_DB_HOST=users-db
@@ -182,31 +190,22 @@ SECRET_KEY=<from secret>
 
 ---
 
-### order-service
+### Task 1.3: order-service
 
-Handles order creation and retrieval. Calls `book-service` to verify availability and `user-service` to verify the user exists. All order endpoints require JWT authentication.
+#### Objective
 
-**API Endpoints**
+Create an order processing service that handles order creation and retrieval by communicating with book-service and user-service over HTTP. All order endpoints require JWT authentication.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | /orders/health | No | Health check |
-| GET | /orders/metrics | No | Metrics placeholder |
-| POST | /orders | Yes — Bearer JWT | Create a new order |
-| GET | /orders/user/:userId | Yes — Bearer JWT | Get all orders for authenticated user |
-| GET | /orders/:id | Yes — Bearer JWT | Get a specific order |
+#### Prerequisites
 
-**Order Creation Flow**
+- Go 1.22+ installed
+- PostgreSQL instance accessible at the configured host and port
+- book-service and user-service running and reachable at the URLs configured in environment variables
+- `SECRET_KEY` set to the same value used by user-service
 
-1. Client sends `POST /orders` with `book_id` and `quantity` (JWT required)
-2. Middleware validates JWT, extracts `user_id`
-3. Calls `GET /users/:userId` to verify user exists
-4. Calls `GET /books/:bookId` to verify book and check stock
-5. If `book.Stock < quantity` → returns `400` with available stock
-6. Computes `total_price = book.Price * quantity`
-7. Inserts order with status `confirmed`
+#### Database Schema
 
-**Database Schema**
+The `orders` table is created automatically on service startup:
 
 ```sql
 CREATE TABLE IF NOT EXISTS orders (
@@ -220,15 +219,38 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 ```
 
-**Route Order (important)**
+A `CHECK` constraint enforces that quantity is always greater than zero at the database level.
 
-Static route MUST come before dynamic route in Gin
+#### Order Creation Flow
+
+1. Client sends `POST /orders` with `book_id` and `quantity` — JWT required
+2. Middleware validates the JWT and extracts `user_id`
+3. Calls `GET /users/:userId` on user-service to verify the user exists
+4. Calls `GET /books/:bookId` on book-service to verify the book and check stock
+5. If `book.Stock < quantity` — returns `400` with the available stock count
+6. Computes `total_price = book.Price * quantity`
+7. Inserts the order with status `confirmed`
+
+#### Route Registration Order
+
+The static route must be registered before the dynamic route in Gin, otherwise `/user/:userId` will be matched as `/:id`:
+
 ```go
-protected.GET("/user/:userId", handler.GetOrdersByUserID) 
-protected.GET("/:id", handler.GetOrderByID)   
+protected.GET("/user/:userId", handler.GetOrdersByUserID)
+protected.GET("/:id", handler.GetOrderByID)
 ```
 
-**Environment Variables**
+#### API Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | /orders/health | No | Health check |
+| GET | /orders/metrics | No | Metrics placeholder |
+| POST | /orders | Yes — Bearer JWT | Create a new order |
+| GET | /orders/user/:userId | Yes — Bearer JWT | Get all orders for authenticated user |
+| GET | /orders/:id | Yes — Bearer JWT | Get a specific order |
+
+#### Environment Variables
 
 ```
 ORDERS_DB_HOST=orders-db
@@ -244,11 +266,63 @@ SECRET_KEY=<from secret>
 
 ---
 
-## Containerization
+## Component 2: Database Configuration
 
-### Multi-Stage Dockerfile Pattern
+### Task 2: Database Setup
 
-All three services use the same multi-stage build - Stage 1 compiles, Stage 2 is a minimal Alpine runtime with only the binary. Example `Dockerfile` for  book-service:
+#### Objective
+
+Configure an isolated PostgreSQL database for each microservice so that each service owns its data independently with no shared database server.
+
+#### Prerequisites
+
+- PostgreSQL 15 available as a container image
+- Kubernetes cluster with a configured StorageClass (required for PersistentVolumeClaims)
+- Secrets containing database credentials created in the target namespace
+
+#### Database Instances
+
+Each service connects to its own PostgreSQL instance. The instances are isolated by separate pods and ClusterIP services within the cluster.
+
+| Service | Database Name | Internal Host | Port |
+|---|---|---|---|
+| book-service | books_db | books-db | 5432 |
+| user-service | users_db | users-db | 5432 |
+| order-service | orders_db | orders-db | 5432 |
+
+> In Docker Compose, different host ports (5432, 5433, 5434) are used to avoid conflicts on the local machine. In Kubernetes, all three databases use port 5432 — they are isolated by separate pods and ClusterIP services.
+
+#### Schema Management
+
+Schema creation is handled in-process at service startup via `CREATE TABLE IF NOT EXISTS` in each service's `database/db.go`. The startup is idempotent — the table is only created if it does not already exist. No external migration tool is required at this stage.
+
+#### Connection Pooling
+
+The standard `database/sql` package is used with the `lib/pq` driver. `database/sql` provides built-in connection pooling by default. Pool settings (max open connections, max idle connections) are left at defaults, which is appropriate for this environment.
+
+---
+
+## Component 3: Containerization
+
+### Task 3.1: Create Dockerfiles
+
+#### Objective
+
+Containerize all three microservices using multi-stage Docker builds that produce small, secure runtime images containing only the compiled binary.
+
+#### Prerequisites
+
+- Docker installed on the build machine
+- DockerHub account for pushing images
+- Go module files (`go.mod`, `go.sum`) present in each service directory
+
+#### Multi-Stage Build Pattern
+
+All three services follow the same two-stage Dockerfile pattern. Stage 1 compiles the binary; Stage 2 is a minimal Alpine runtime that contains only the binary and CA certificates.
+
+The `CGO_ENABLED=0` flag produces a fully static binary with no libc dependency, which allows it to run on a minimal Alpine image without any additional system libraries.
+
+The following is the Dockerfile for book-service. The same pattern applies to user-service and order-service, with the binary name and exposed port adjusted accordingly.
 
 ```dockerfile
 FROM golang:1.22-alpine AS builder
@@ -273,9 +347,44 @@ EXPOSE 8080
 CMD ["./book-service"]
 ```
 
-> `CGO_ENABLED=0` produces a fully static binary with no libc dependency, allowing it to run on minimal Alpine.
+A non-root `appuser` is created and set as the runtime user, following the principle of least privilege. The final image contains no Go toolchain or source code.
 
-### Docker Compose (Local Development Only)
+#### Build and Push
+
+Build all three images from the local machine, tagging with a version:
+
+```powershell
+docker build -t justnotmirr/book-service:v1.3 ./book-service
+docker build -t justnotmirr/user-service:v1.3 ./user-service
+docker build -t justnotmirr/order-service:v1.3 ./order-service
+```
+
+Push the images to Docker Hub:
+
+```powershell
+docker push justnotmirr/book-service:v1.3
+docker push justnotmirr/user-service:v1.3
+docker push justnotmirr/order-service:v1.3
+```
+
+#### Verification
+
+Confirm the images are available on Docker Hub before proceeding to deployment. Each image should be listed under the account at hub.docker.com with the correct tag.
+
+---
+
+### Task 3.2: Docker Compose Setup
+
+#### Objective
+
+Create a local development environment using Docker Compose that brings up all six containers — three databases and three application services — with proper dependency ordering and volume persistence.
+
+#### Prerequisites
+
+- Docker and Docker Compose v2 installed
+- `.env` file present with all required environment variable values
+
+#### Service Configuration
 
 | Container | Host Port | Depends On |
 |---|---|---|
@@ -286,63 +395,54 @@ CMD ["./book-service"]
 | user-service | 8081:8081 | users_db (healthy) |
 | order-service | 8082:8082 | orders_db (healthy), book-service, user-service |
 
-> **Note:** Docker Compose uses different host ports (5432, 5433, 5434) to avoid conflicts on the local machine. In Kubernetes all three databases use port 5432 — they are isolated by separate pods and ClusterIP services.
+Database containers are configured with a `pg_isready` health check. Application services use `condition: service_healthy` so they do not start until their respective database is ready to accept connections.
+
+#### Running the Stack
+
+Start all containers in detached mode:
 
 ```bash
-# Start everything
 docker compose up --build -d
+```
 
-# Tear down and remove volumes
+Tear down all containers and remove volumes:
+
+```bash
 docker compose down -v
 ```
 
----
+#### Verification
 
-## Kubernetes Deployment
-
-### Storage Provisioner
-
-If the cluster has no default `StorageClass`, it will cause all PVCs to remain in `Pending` state. Install `rancher/local-path-provisioner` to resolve this.
+Once all containers are running, verify each service responds on its health endpoint:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+curl http://localhost:8080/books/health
+curl http://localhost:8081/users/health
+curl http://localhost:8082/orders/health
 ```
 
-Set as default:
-
-```bash
-kubectl patch storageclass local-path \
-  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-```
-
-Verify:
-
-```bash
-kubectl get storageclass
-```
-
-> Without a StorageClass, PVCs stay `Pending` → databases never start → services crash-loop.
-
-### Pod Startup Behaviour
-
-Application services experience 1–2 restarts on first deploy. This is expected:
-
-```
-t=0s    All 6 pods start simultaneously
-t=2s    Services try to connect to database — connection refused (postgres still initialising)
-t=2s    Services crash (Exit Code 1)
-t=30s   Databases ready
-t=31s   Kubernetes restarts services — connect successfully
-t=40s   All 6 pods Running
-```
-
-Kubernetes has no `depends_on`. Services are designed to crash-and-restart until dependencies are ready.
+Each endpoint should return `{"status":"ok","service":"<service-name>"}`.
 
 ---
 
-## Helm Chart
+## Component 4: Kubernetes Deployment
 
-### Structure
+### Task 4.1: Create Kubernetes Manifests
+
+#### Objective
+
+Deploy all three microservices and their databases on the Kubernetes cluster using Deployment and Service manifests, packaged as a Helm chart.
+
+#### Prerequisites
+
+- Kubernetes cluster running with kubectl access configured
+- Helm installed on the machine from which deployments will be run
+- Docker images pushed to Docker Hub and accessible from cluster nodes
+- A default StorageClass configured in the cluster (required for database PVCs)
+
+#### Helm Chart Structure
+
+All Kubernetes manifests are managed as a single Helm chart named `book-ordering`. The chart structure is as follows:
 
 ```
 book-ordering/
@@ -354,64 +454,126 @@ book-ordering/
     ├── configmap.yaml
     ├── books-db.yaml
     ├── users-db.yaml
-    ├── orders-db.yaml   
-    ├── book-service.yaml  
-    ├── user-service.yaml 
-    ├── order-service.yaml 
+    ├── orders-db.yaml
+    ├── book-service.yaml
+    ├── user-service.yaml
+    ├── order-service.yaml
     └── ingress.yaml
 ```
 
-### Key `values.yaml` Settings
+Each database is deployed as a StatefulSet with a PersistentVolumeClaim. Each application service is deployed as a Deployment with a ClusterIP Service.
+
+#### Storage Provisioner
+
+If the cluster has no default StorageClass, all PVCs will remain in `Pending` state, which prevents databases from starting and causes application services to crash-loop. Install `rancher/local-path-provisioner` to provide a default StorageClass:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+```
+
+Set it as the cluster default:
+
+```bash
+kubectl patch storageclass local-path \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+```
+
+Verify the StorageClass is marked as default:
+
+```bash
+kubectl get storageclass
+```
+
+The output should show `local-path (default)` in the NAME column.
+
+#### Health Probes
+
+Liveness and readiness probes are configured on all six workloads. Application services use HTTP GET probes; databases use exec probes running `pg_isready`.
+
+| Service | Liveness Path | Readiness Path | Notes |
+|---|---|---|---|
+| book-service | /books/health | /books/health | HTTP GET on port 8080 |
+| user-service | /users/health | /users/health | HTTP GET on port 8081 |
+| order-service | /orders/health | /orders/health | HTTP GET on port 8082 |
+| *-db | pg_isready -U postgres | pg_isready -U postgres | exec probe |
+
+Health and metrics routes in order-service are registered outside the auth middleware group so that Kubernetes probes do not require a JWT token.
+
+#### Pod Startup Behaviour
+
+Application services will restart once or twice on the first deployment. This is expected behaviour because Kubernetes has no `depends_on` equivalent — all six pods start simultaneously, and the application services will fail their initial database connection while PostgreSQL is still initialising.
+
+```
+t=0s    All 6 pods start simultaneously
+t=2s    Services attempt database connection — refused (postgres still initialising)
+t=2s    Services exit (Exit Code 1)
+t=30s   Databases become ready
+t=31s   Kubernetes restarts services — connection succeeds
+t=40s   All 6 pods Running
+```
+
+The services are designed to crash-and-restart until their dependencies are available.
+
+#### Verification
+
+Watch all pods come up in the `book-ordering` namespace:
+
+```bash
+kubectl get pods -n book-ordering -w
+```
+
+All six pods should reach `Running` status. The application service pods may show 1–2 restarts before stabilising, which is expected.
+
+---
+
+### Task 4.2: Configure ConfigMaps and Secrets
+
+#### Objective
+
+Externalise all configuration and credentials from application images using Kubernetes ConfigMaps for non-sensitive values and Secrets for sensitive values.
+
+#### Prerequisites
+
+- Helm chart structure in place with a `templates/configmap.yaml` and `templates/secrets.yaml`
+- All sensitive values base64-encoded before being placed in the Secret manifest
+
+#### ConfigMap
+
+The ConfigMap holds non-sensitive configuration that is shared across services: internal service hostnames, database names, ports, and inter-service URLs. These values are injected as environment variables into each Deployment.
+
+Key settings from `values.yaml` that populate the ConfigMap:
 
 ```yaml
-images:
-  bookService:
-    repository: justnotmirr/book-service
-    tag: v1.3
-    pullPolicy: Always
-  userService:
-    repository: justnotmirr/user-service
-    tag: v1.3
-    pullPolicy: Always
-  orderService:
-    repository: justnotmirr/order-service
-    tag: v1.3
-    pullPolicy: Always
-  postgres:
-    repository: postgres
-    tag: "15"
-    pullPolicy: IfNotPresent
-
 database:
   books:
-    host: books-db 
+    host: books-db
     name: books_db
     user: postgres
-    port: "5432" 
+    port: "5432"
 
 ingress:
   host: book-ordering.dynv6.net
   className: nginx
 ```
 
-### Secrets
+#### Secrets
 
-db-secret contains `base64` of postgres-password and the jwt-secret.
+The `db-secret` Secret holds the PostgreSQL password and the JWT signing key. Values must be base64-encoded:
 
 ```yaml
-postgres-password: cGFzc3dvcmQ= 
-jwt-secret: aTV1MGd5VVJKcg==  
+postgres-password: cGFzc3dvcmQ=
+jwt-secret: aTV1MGd5VVJKcg==
 ```
 
-To generate a base64 value:
+To generate a base64 value for any string:
 
 ```bash
 echo -n 'your-value' | base64
 ```
 
-Secrets are injected per-service:
+Secrets are injected per service as follows:
 
-| Service | Env Var | Secret Key |
+| Service | Environment Variable | Secret Key |
 |---|---|---|
 | book-service | BOOKS_DB_PASSWORD | postgres-password |
 | user-service | USERS_DB_PASSWORD | postgres-password |
@@ -420,20 +582,59 @@ Secrets are injected per-service:
 | order-service | SECRET_KEY | jwt-secret |
 | All databases | POSTGRES_PASSWORD | postgres-password |
 
-### Health Probes
+#### Verification
 
-| Service | Liveness Path | Readiness Path | Notes |
-|---|---|---|---|
-| book-service | /books/health | /books/health | HTTP GET on port 8080 |
-| user-service | /users/health | /users/health | HTTP GET on port 8081 |
-| order-service | /orders/health | /orders/health | HTTP GET on port 8082|
-| *-db | pg_isready -U postgres | pg_isready -U postgres | exec probe |
+Confirm the Secret and ConfigMap were created in the namespace:
 
-> Health and metrics routes in `order-service` are registered **outside** the auth middleware group so Kubernetes probes don't require a JWT token.
+```bash
+kubectl get secret -n book-ordering
+kubectl get configmap -n book-ordering
+```
 
-### Ingress Routing
+Both resources should be listed. To verify the Secret contains the expected keys without revealing values:
 
-Path-based routing with regex:
+```bash
+kubectl describe secret db-secret -n book-ordering
+```
+
+---
+
+### Task 4.3: Configure Ingress
+
+#### Objective
+
+Set up a unified external access point for all three services using path-based routing through an NGINX Ingress Controller.
+
+#### Prerequisites
+
+- Helm installed with the ingress-nginx repository added
+- MetalLB or equivalent load balancer configured so the Ingress Controller can obtain an external IP
+- DNS record pointing the domain to the Jump Server's public IP
+
+#### Install NGINX Ingress Controller
+
+Add the ingress-nginx Helm repository and install the controller into its own namespace:
+
+```bash
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --create-namespace
+```
+
+Verify the controller service has been assigned an external IP before proceeding:
+
+```bash
+kubectl get svc -n ingress-nginx
+```
+
+Wait until the `EXTERNAL-IP` column shows an IP address rather than `<pending>`.
+
+#### Ingress Routing Configuration
+
+Path-based routing is configured in `templates/ingress.yaml` using `ImplementationSpecific` pathType with regex rewriting, and `Exact` for the login endpoint:
 
 ```yaml
 /books(/|$)(.*)   → book-service:8080    (ImplementationSpecific)
@@ -442,82 +643,119 @@ Path-based routing with regex:
 /orders(/|$)(.*)  → order-service:8082   (ImplementationSpecific)
 ```
 
+Key `values.yaml` settings for the Ingress:
+
+```yaml
+ingress:
+  host: book-ordering.dynv6.net
+  className: nginx
+```
+
+#### Verification
+
+After deploying the Helm chart, confirm the Ingress resource has been assigned an address:
+
+```bash
+kubectl get ingress -n book-ordering
+```
+
+The ADDRESS column should show the MetalLB-assigned IP. Test routing through the domain:
+
+```bash
+curl http://book-ordering.dynv6.net/books/health
+curl http://book-ordering.dynv6.net/users/health
+curl http://book-ordering.dynv6.net/orders/health
+```
+
+Each request should return a `200` response from the correct service.
+
 ---
 
-## Deployment Procedure
+### Task 4.4: Deploy on Kubernetes
 
-### 1. Build and Push Images
+#### Objective
 
-Build (local machine):
-```powershell
-docker build -t justnotmirr/book-service:v1.3 ./book-service
-docker build -t justnotmirr/user-service:v1.3 ./user-service
-docker build -t justnotmirr/order-service:v1.3 ./order-service
-```
+Deploy the complete application stack — all services, databases, configuration, and ingress — to the Kubernetes cluster using Helm.
 
-Push to Docker Hub:
+#### Prerequisites
 
-```powershell
-docker push justnotmirr/book-service:v1.3
-docker push justnotmirr/user-service:v1.3
-docker push justnotmirr/order-service:v1.3
-```
+- kubectl configured with access to the cluster from the Jump Server
+- Helm chart present on the Jump Server
+- Docker images available on Docker Hub
+- StorageClass configured (see Task 4.1)
+- NGINX Ingress Controller installed (see Task 4.3)
 
-### 2. Copy Chart to Jump Server
+#### Step 1: Copy the Helm Chart to the Jump Server
+
+Transfer the chart from the local machine to the Jump Server using scp:
 
 ```powershell
 scp -r .\book-ordering\ azureuser@<jump-server-public-ip>:~/
 ```
 
-### 3. Validate
+#### Step 2: Validate the Chart
+
+Run a lint check and a dry-run install to catch any manifest errors before applying to the cluster:
 
 ```bash
 helm lint ./book-ordering/
 helm install book-ordering ./book-ordering/ --dry-run=client --debug
 ```
 
-### 4. Deploy
+Review the dry-run output to confirm all resources are rendered correctly.
+
+#### Step 3: Deploy
+
+Install the Helm release into the `book-ordering` namespace, creating the namespace if it does not exist:
 
 ```bash
 helm install book-ordering ./book-ordering/ \
   --namespace book-ordering \
   --create-namespace
+```
 
+Watch the pods come up:
+
+```bash
 kubectl get pods -n book-ordering -w
 ```
 
-### 5. Upgrade After Changes
+#### Step 4: Access the Application
 
-Update the image tag in values.yaml, copy chart, then run:
+Port-forward the ingress controller on the Jump Server to expose port 80 locally on port 8080:
+
+```bash
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 &
+```
+
+Test access using the Host header directly, or via the domain name:
+
+```bash
+curl -H "Host: book-ordering.dynv6.net" http://localhost:8080/books/health
+curl http://book-ordering.dynv6.net/books/health
+```
+
+#### Step 5: Upgrade After Changes
+
+After modifying the image tag or any values, copy the updated chart to the Jump Server and run:
 
 ```bash
 helm upgrade book-ordering ./book-ordering/ \
   --namespace book-ordering
 ```
 
-Verify the right image is running:
+Verify the correct image tag is running after the upgrade:
 
 ```bash
 kubectl get deployment book-service -n book-ordering \
   -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-### 6. Access
+The output should show the image with the updated tag.
 
-Port-forward ingress on jump server:
+#### Uninstall
 
-```bash
-kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 &
-```
-Test with Host header or directly via domain:
-
-```bash
-curl -H "Host: book-ordering.dynv6.net" http://localhost:8080/books/health
-
-curl http://book-ordering.dynv6.net/books/health
-```
-
-### 7. To Uninstall
+To remove the entire application stack, uninstall the Helm release, delete all PVCs, and remove the namespace:
 
 ```bash
 helm uninstall book-ordering -n book-ordering
@@ -527,9 +765,235 @@ kubectl delete namespace book-ordering
 
 ---
 
+## Component 5: CI/CD Pipeline
+
+### Task 5: Implement Automated Pipeline
+
+#### Objective
+
+Implement an automated build and deployment pipeline using GitHub Actions that runs on every push to main, builds and pushes Docker images for all three services, and deploys to the Kubernetes cluster via Helm.
+
+#### Prerequisites
+
+- GitHub repository containing the application source code and Helm chart
+- DockerHub account with a personal access token that has read and write permissions
+- Jump Server accessible via SSH with kubectl and Helm already configured
+- SSH private key available for configuring as a GitHub secret
+
+#### Pipeline Overview
+
+```
+Push to main (task3-files/**)
+  │
+  ├── test-and-lint (matrix: 3 services in parallel)
+  │     └── go vet ./...
+  │     └── go test -v ./...
+  │
+  ├── build-and-push (matrix: 3 services in parallel, needs: test-and-lint)
+  │     └── docker build
+  │     └── docker push → justnotmirr/<service>:<git-sha>
+  │
+  └── deploy (needs: build-and-push)
+        └── scp helm chart → jump server
+        └── helm upgrade --install → book-ordering namespace
+        └── kubectl rollout status (verify)
+```
+
+The pipeline is divided into three jobs. `test-and-lint` runs first; if it fails, `build-and-push` does not run. `deploy` runs only after all three `build-and-push` matrix jobs complete successfully.
+
+#### Image Tagging
+
+Every image is tagged with the first seven characters of the Git commit SHA, computed once and passed to all three services:
+
+```bash
+justnotmirr/book-service:e970efd
+justnotmirr/user-service:e970efd
+justnotmirr/order-service:e970efd
+```
+
+This ensures every deployed image is traceable to an exact commit. The SHA is computed in the deploy job using:
+
+```yaml
+- name: set tag
+  id: vars
+  run: echo "sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+```
+
+#### Step 1: Configure GitHub Repository Secrets
+
+Navigate to the GitHub repository, go to Settings → Secrets and variables → Actions, and add the following secrets:
+
+| Secret | Description |
+|---|---|
+| DOCKERHUB_USERNAME | DockerHub account username |
+| DOCKERHUB_TOKEN | DockerHub personal access token (read/write) |
+| JUMP_SERVER_IP | Public IP address of the Jump Server |
+| JUMP_SERVER_USER | SSH username for the Jump Server (e.g. azureuser) |
+| JUMP_SERVER_SSH_KEY | Private SSH key used to access the Jump Server |
+
+To generate a DockerHub access token: log in to hub.docker.com, go to Account Settings → Personal Access Tokens, and create a new token with Read and Write permissions.
+
+#### Step 2: Create the Workflow File
+
+Create the directory structure inside the repository:
+
+```bash
+.github/
+  workflows/
+    deploy.yml
+```
+
+The complete workflow file:
+
+```yaml
+name: book-ordering-cicd
+
+on:
+  push: 
+    branches: [main]
+    paths:
+      - 'task3-files/**'
+  workflow_dispatch:
+
+jobs: 
+  test-and-lint:
+    runs-on: ubuntu-latest
+    strategy: 
+      matrix:
+        service: [book-service, user-service, order-service]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: set up go
+        uses: actions/setup-go@v5
+        with:
+            go-version: '1.26.0'
+            cache: false
+
+      - name: cache go modules
+        uses: actions/cache@v4
+        with:
+            path: |
+                ~/go/pkg/mod
+                ~/.cache/go-build
+            key: ${{ runner.os }}-go-${{ matrix.service }}-${{ hashFiles(format('task3-files/{0}/go.sum', matrix.service)) }}
+            restore-keys: |
+                ${{ runner.os }}-go-${{ matrix.service }}-
+
+      - name: lint and test
+        working-directory: ./task3-files/${{ matrix.service }} 
+        run: |
+          go vet ./...
+          go test -v ./...
+
+  build-and-push:
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [book-service, user-service, order-service]
+    outputs:
+      image-tag: ${{ steps.vars.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: set short SHA
+        id: vars
+        run: echo "sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: login to dockerhub
+        uses: docker/login-action@v3
+        with: 
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./task3-files/${{ matrix.service }}
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ steps.vars.outputs.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    env: 
+      TAG: ${{ needs.build-and-push.outputs.image-tag }}
+      DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup ssh agent
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.JUMP_SERVER_SSH_KEY }}
+
+      - name: add jump server to known hosts
+        run: ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: copy helm chart to jump server
+        run: |
+          scp -r ./task3-files/book-ordering ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/
+
+      - name: deploy via helm
+        run: |
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            "helm upgrade --install book-ordering ~/book-ordering \
+            --namespace book-ordering \
+            --create-namespace \
+            --set images.bookService.tag=${TAG} \
+            --set images.userService.tag=${TAG} \
+            --set images.orderService.tag=${TAG} \
+            --rollback-on-failure \
+            --wait"
+
+      - name: verify rollout
+        run: |
+          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
+            "kubectl rollout status deployment/book-service -n book-ordering && \
+             kubectl rollout status deployment/order-service -n book-ordering && \
+             kubectl rollout status deployment/user-service -n book-ordering"
+
+      - name: notification
+        if: always()
+        run: echo "deployment of version ${TAG} finished with status ${{ job.status }}"
+```
+
+The pipeline SSHes into the Jump Server to run all Helm and kubectl commands because GitHub Actions runners are cloud-hosted and cannot reach the private cluster directly. The Jump Server already has kubectl and Helm configured with access to the cluster.
+
+#### Step 3: Push the Workflow File
+
+```bash
+git add .github/workflows/deploy.yml
+git commit -m "add cicd pipeline"
+git push origin main
+```
+
+If this commit does not include changes under `task3-files/`, the pipeline will not trigger automatically. To trigger it manually, go to the GitHub repository → Actions tab → select `github-actions-cicd` → click Run workflow.
+
+#### Verification
+
+After the pipeline completes, confirm the new image tag is running on the cluster:
+
+```bash
+kubectl describe deployment book-service -n book-ordering | grep Image
+kubectl describe deployment user-service -n book-ordering | grep Image
+kubectl describe deployment order-service -n book-ordering | grep Image
+```
+
+The image shown for each deployment should match the DockerHub image with the Git SHA tag built during the pipeline run.
+
+---
+
 ## API Testing
 
-**Step 1 — Health Checks**
+The following steps test the complete application flow end to end. All requests are made against the domain. Replace placeholder values with actual values before running.
+
+#### Step 1: Health Checks
+
+Verify all three services are reachable through the Ingress before running any other tests:
 
 ```
 GET http://book-ordering.dynv6.net/books/health
@@ -537,7 +1001,9 @@ GET http://book-ordering.dynv6.net/users/health
 GET http://book-ordering.dynv6.net/orders/health
 ```
 
-**Step 2 — Register a User**
+Each should return `200 OK`.
+
+#### Step 2: Register a User
 
 ```
 POST http://book-ordering.dynv6.net/users
@@ -550,9 +1016,10 @@ Content-Type: application/json
 }
 ```
 
-**Step 3 — Login and Copy Token**
+#### Step 3: Login and Copy Token
 
-Login using the created username and password. Copy the token from the response.
+Login using the registered credentials. Copy the token value from the response — it is required for all order endpoints.
+
 ```
 POST http://book-ordering.dynv6.net/login
 Content-Type: application/json
@@ -562,23 +1029,26 @@ Content-Type: application/json
   "password": "<password>"
 }
 ```
+
 Response: `{ "token": "eyJhbGc...", "user": { "id": 1, ... } }`
 
-**Step 4 — Create a Book**
+#### Step 4: Create a Book
 
 ```
 POST http://book-ordering.dynv6.net/books
 Content-Type: application/json
 
 {
-  "title": "<book-name>",
-  "author": "<Alan Donovan>",
-  "price": <49.99>,
-  "stock": <100>
+  "title": "<book-title>",
+  "author": "<author-name>",
+  "price": 49.99,
+  "stock": 100
 }
 ```
 
-**Step 5 — Create an Order**
+#### Step 5: Create an Order
+
+Use the token from Step 3 in the Authorization header. Use the `book_id` returned from Step 4.
 
 ```
 POST http://book-ordering.dynv6.net/orders
@@ -586,50 +1056,41 @@ Authorization: Bearer eyJhbGc...
 Content-Type: application/json
 
 {
-  "book_id": <1>,
-  "quantity": <2>
+  "book_id": 1,
+  "quantity": 2
 }
 ```
 
-**Step 6 — Get Orders for User**
+#### Step 6: Get Orders for a User
+
+Use the `user_id` returned in the login response from Step 3. Using a different user's ID returns `403 Forbidden`.
 
 ```
 GET http://book-ordering.dynv6.net/orders/user/1
 Authorization: Bearer eyJhbGc...
 ```
 
-1 = your user_id from the login response.
-Using another user's ID returns 403 Forbidden.
-
 ### Common Error Responses
 
 | Code | Error | Cause | Fix |
 |---|---|---|---|
 | 401 | authorization header required | Missing Bearer token | Add `Authorization: Bearer <token>` header |
-| 403 | cannot view another user's orders | JWT user_id != URL user ID | Use your own user ID |
-| 400 | insufficient stock | Quantity > book.Stock | Reduce quantity or increase stock |
-| 503 | user/book service unavailable | order-service can't reach dependency | Check pod logs and DNS |
-
----
-
-## Known Limitations
-
-- **Init containers** — Services crash 1-2 times on first deploy waiting for postgres.
-- **Database migrations** — Schema is created via `CREATE TABLE IF NOT EXISTS` on startup.
-- **Secret management** — Secrets are base64-encoded in the Helm chart.
+| 403 | cannot view another user's orders | JWT user_id does not match URL user ID | Use your own user ID from the login response |
+| 400 | insufficient stock | Requested quantity exceeds book.Stock | Reduce quantity or increase stock via PUT /books/:id |
+| 503 | user/book service unavailable | order-service cannot reach a dependency | Check pod logs and verify DNS resolution |
 
 ---
 
 ## Debugging Reference
 
-Pod status:
+#### Pod Status
 
 ```bash
 kubectl get pods -n book-ordering
 kubectl get pods -n book-ordering -w
 ```
 
-Logs:
+#### Service Logs
 
 ```bash
 kubectl logs -n book-ordering deployment/book-service
@@ -637,43 +1098,61 @@ kubectl logs -n book-ordering deployment/user-service
 kubectl logs -n book-ordering deployment/order-service
 ```
 
-Verify routes actually registered:
+#### Verify Routes Registered
+
+Confirm that all Gin routes were registered on startup, including the health and metrics routes outside the auth group:
 
 ```bash
 kubectl logs -n book-ordering deployment/order-service | grep "GIN-debug"
 ```
 
-Verify image tag deployed:
+#### Verify Image Tag Deployed
 
 ```bash
 kubectl get deployment book-service -n book-ordering \
   -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-Pod details and events:
+#### Pod Details and Events
 
 ```bash
 kubectl describe pod <pod-name> -n book-ordering
 ```
 
-PVC and storage:
+#### PVC and Storage
+
+If database pods are stuck in `Pending`, check PVC status and StorageClass:
 
 ```bash
 kubectl get pvc -n book-ordering
 kubectl get storageclass
 ```
 
-Services and ingress:
+#### Services and Ingress
 
 ```bash
 kubectl get svc -n book-ordering
 kubectl get ingress -n book-ordering
 ```
 
-Helm:
+#### Helm
 
 ```bash
 helm list
 helm history book-ordering
 helm rollback book-ordering 1
 ```
+
+---
+
+## Known Limitations
+
+1. Services restart once or twice on initial deployment while waiting for PostgreSQL to finish initialising. Kubernetes has no native `depends_on` mechanism. Adding init containers that poll the database port before the main container starts would eliminate these restarts.
+
+2. Database schema is managed in-process via `CREATE TABLE IF NOT EXISTS` on startup. There is no versioned migration system. Schema changes in future iterations require careful handling to avoid data loss on existing deployments.
+
+3. Secrets are base64-encoded values stored in the Helm chart. Base64 is not encryption. For production use, secrets should be managed using a tool such as Sealed Secrets or an external secrets manager, and secret values should never be committed to the repository.
+
+4. Stock is not decremented when an order is placed. The order creation flow checks that sufficient stock exists but does not update the `stock` field in the books table after the order is confirmed. A subsequent order for the same book will succeed even if the previously ordered quantity would have exhausted the available stock.
+
+5. The metrics endpoint on all three services returns a static placeholder string. Integration with `prometheus/client_golang` is required before the endpoint exposes real data.
