@@ -1,0 +1,61 @@
+global:
+  resolve_timeout: 5m
+  slack_api_url: '<slack-hooks-url>'
+
+inhibit_rules:
+- equal:
+  - namespace
+  - alertname
+  source_matchers:
+  - severity = critical
+  target_matchers:
+  - severity =~ warning|info
+- equal:
+  - namespace
+  - alertname
+  source_matchers:
+  - severity = warning
+  target_matchers:
+  - severity = info
+- equal:
+  - namespace
+  source_matchers:
+  - alertname = InfoInhibitor
+  target_matchers:
+  - severity = info
+- target_matchers:
+  - alertname = InfoInhibitor
+
+receivers:
+- name: "null"
+- name: slack-alerts
+  slack_configs:
+  - channel: '#book-ordering-alerts'
+    send_resolved: true
+    title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+    text: |
+      {{ range .Alerts }}
+      *Alert:* {{ .Annotations.summary }}
+      *Description:* {{ .Annotations.description }}
+      *Severity:* {{ .Labels.severity }}
+      *Service:* {{ .Labels.service }}
+      {{ end }}
+
+route:
+  group_by:
+  - namespace
+  group_interval: 5m
+  group_wait: 30s
+  receiver: "null"
+  repeat_interval: 12h
+  routes:
+  - matchers:
+    - alertname = "Watchdog"
+    receiver: "null"
+  - matchers:
+    - namespace = "book-ordering"
+    receiver: slack-alerts
+    continue: true
+
+templates:
+- /etc/alertmanager/config/*.tmpl

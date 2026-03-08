@@ -13,6 +13,7 @@ A microservices-based book ordering application built with Go (Gin), deployed on
 - [Component 3: Containerization](#component-3-containerization)
 - [Component 4: Kubernetes Deployment](#component-4-kubernetes-deployment)
 - [Component 5: CI/CD Pipeline](#component-5-cicd-pipeline)
+- [Component 6: Monitoring](#component-6-monitoring)
 - [API Testing](#api-testing)
 - [Debugging Reference](#debugging-reference)
 - [Known Limitations](#known-limitations)
@@ -136,7 +137,7 @@ Create a user management and authentication service that handles registration, l
 
 - Go 1.22+ installed
 - PostgreSQL instance accessible at the configured host and port
-- `SECRET_KEY` environment variable set — this value must be identical to the one configured in order-service, as both services sign and validate the same JWT tokens
+- `SECRET_KEY` environment variable set - this value must be identical to the one configured in order-service, as both services sign and validate the same JWT tokens
 
 #### Database Schema
 
@@ -161,7 +162,7 @@ CREATE TABLE IF NOT EXISTS users (
 3. On success, signs a JWT containing `user_id` using `SECRET_KEY`
 4. Client includes the token in subsequent requests: `Authorization: Bearer <token>`
 5. Auth middleware validates the signature, extracts `user_id`, and sets it in the Gin context
-6. Handlers read `user_id` from the context — never from the request body
+6. Handlers read `user_id` from the context - never from the request body
 
 > `user_id` is always taken from the validated JWT, never from the request body. This prevents users from creating or accessing resources belonging to other users.
 
@@ -173,8 +174,8 @@ CREATE TABLE IF NOT EXISTS users (
 | GET | /users/metrics | No | Metrics placeholder |
 | POST | /users | No | Register a new user |
 | GET | /users/:id | No | Get user details |
-| POST | /login | No | Login — returns JWT token |
-| PUT | /users/:id | Yes — Bearer JWT | Update own profile only |
+| POST | /login | No | Login - returns JWT token |
+| PUT | /users/:id | Yes - Bearer JWT | Update own profile only |
 
 #### Environment Variables
 
@@ -223,11 +224,11 @@ A `CHECK` constraint enforces that quantity is always greater than zero at the d
 
 #### Order Creation Flow
 
-1. Client sends `POST /orders` with `book_id` and `quantity` — JWT required
+1. Client sends `POST /orders` with `book_id` and `quantity` - JWT required
 2. Middleware validates the JWT and extracts `user_id`
 3. Calls `GET /users/:userId` on user-service to verify the user exists
 4. Calls `GET /books/:bookId` on book-service to verify the book and check stock
-5. If `book.Stock < quantity` — returns `400` with the available stock count
+5. If `book.Stock < quantity` - returns `400` with the available stock count
 6. Computes `total_price = book.Price * quantity`
 7. Inserts the order with status `confirmed`
 
@@ -246,9 +247,9 @@ protected.GET("/:id", handler.GetOrderByID)
 |---|---|---|---|
 | GET | /orders/health | No | Health check |
 | GET | /orders/metrics | No | Metrics placeholder |
-| POST | /orders | Yes — Bearer JWT | Create a new order |
-| GET | /orders/user/:userId | Yes — Bearer JWT | Get all orders for authenticated user |
-| GET | /orders/:id | Yes — Bearer JWT | Get a specific order |
+| POST | /orders | Yes - Bearer JWT | Create a new order |
+| GET | /orders/user/:userId | Yes - Bearer JWT | Get all orders for authenticated user |
+| GET | /orders/:id | Yes - Bearer JWT | Get a specific order |
 
 #### Environment Variables
 
@@ -290,11 +291,11 @@ Each service connects to its own PostgreSQL instance. The instances are isolated
 | user-service | users_db | users-db | 5432 |
 | order-service | orders_db | orders-db | 5432 |
 
-> In Docker Compose, different host ports (5432, 5433, 5434) are used to avoid conflicts on the local machine. In Kubernetes, all three databases use port 5432 — they are isolated by separate pods and ClusterIP services.
+> In Docker Compose, different host ports (5432, 5433, 5434) are used to avoid conflicts on the local machine. In Kubernetes, all three databases use port 5432 - they are isolated by separate pods and ClusterIP services.
 
 #### Schema Management
 
-Schema creation is handled in-process at service startup via `CREATE TABLE IF NOT EXISTS` in each service's `database/db.go`. The startup is idempotent — the table is only created if it does not already exist. No external migration tool is required at this stage.
+Schema creation is handled in-process at service startup via `CREATE TABLE IF NOT EXISTS` in each service's `database/db.go`. The startup is idempotent - the table is only created if it does not already exist. No external migration tool is required at this stage.
 
 #### Connection Pooling
 
@@ -379,7 +380,7 @@ Confirm the images are available on Docker Hub before proceeding to deployment. 
 
 #### Objective
 
-Create a local development environment using Docker Compose that brings up all six containers — three databases and three application services — with proper dependency ordering and volume persistence.
+Create a local development environment using Docker Compose that brings up all six containers - three databases and three application services - with proper dependency ordering and volume persistence.
 
 #### Prerequisites
 
@@ -390,9 +391,9 @@ Create a local development environment using Docker Compose that brings up all s
 
 | Container | Host Port | Depends On |
 |---|---|---|
-| books_db | 5432:5432 | — |
-| users_db | 5433:5432 | — |
-| orders_db | 5434:5432 | — |
+| books_db | 5432:5432 | - |
+| users_db | 5433:5432 | - |
+| orders_db | 5434:5432 | - |
 | book-service | 8080:8080 | books_db (healthy) |
 | user-service | 8081:8081 | users_db (healthy) |
 | order-service | 8082:8082 | orders_db (healthy), book-service, user-service |
@@ -673,7 +674,7 @@ Each request should return a `200` response from the correct service.
 
 #### Objective
 
-Deploy the complete application stack — all services, databases, configuration, and ingress — to the Kubernetes cluster using Helm.
+Deploy the complete application stack - all services, databases, configuration, and ingress - to the Kubernetes cluster using Helm.
 
 #### Prerequisites
 
@@ -718,10 +719,10 @@ Application services will restart once or twice on the first deployment. This is
 
 ```
 t=0s    All 6 pods start simultaneously
-t=2s    Services attempt database connection — refused (postgres still initialising)
+t=2s    Services attempt database connection - refused (postgres still initialising)
 t=2s    Services exit (Exit Code 1)
 t=30s   Databases become ready
-t=31s   Kubernetes restarts services — connection succeeds
+t=31s   Kubernetes restarts services - connection succeeds
 t=40s   All 6 pods Running
 ```
 
@@ -1024,8 +1025,8 @@ Deploy the full Prometheus monitoring stack on the cluster using the kube-promet
 
 Instead of managing Prometheus configuration files manually, you create Kubernetes CRDs and the Operator automatically updates Prometheus. The two CRDs used in this project are:
 
-- **ServiceMonitor** — tells Prometheus which services to scrape, at what path and interval
-- **PrometheusRule** — defines alerting rules in PromQL that fire when conditions are met
+- **ServiceMonitor** - tells Prometheus which services to scrape, at what path and interval
+- **PrometheusRule** - defines alerting rules in PromQL that fire when conditions are met
 
 #### Components Installed
 
@@ -1144,7 +1145,7 @@ helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
 kubectl get pods -n monitoring
 ```
 
-Expected output — all pods Running:
+Expected output - all pods Running:
 ```
 NAME                                                     READY   STATUS
 alertmanager-kube-prometheus-stack-alertmanager-0        2/2     Running
@@ -1255,7 +1256,7 @@ In Prometheus, go to Status > Targets to confirm Kubernetes cluster targets are 
 
 #### Objective
 
-Add real Prometheus-compatible metrics endpoints to all three services, replacing the placeholder `tbd` response. Expose HTTP request metrics automatically via middleware, and increment business-specific counters at the relevant call sites.
+Add real Prometheus-compatible metrics endpoints to all three services. Expose HTTP request metrics automatically via middleware, and increment business-specific counters at the relevant call sites.
 
 #### Prerequisites
 
@@ -1305,14 +1306,12 @@ Business metrics per service:
 
 ##### 2. New file: `middleware/metrics.go`
 
-Create a new `metrics.go` file inside the existing `middleware/` directory. This implements a Gin middleware function `MetricsMiddleware()` that wraps every request and records the three HTTP metrics automatically.
+Create a new `metrics.go` file inside the `middleware/` directory. This implements a Gin middleware function `MetricsMiddleware()` that wraps every request and records the three HTTP metrics automatically.
 
 What the middleware does per request:
 - Increments `http_requests_in_flight` gauge on entry, decrements on exit
-- Records `http_requests_total` counter after the handler runs, using the final
-  status code from `c.Writer.Status()`
-- Records `http_request_duration_seconds` histogram using `c.FullPath()` so dynamic
-  routes like `/:id` are grouped correctly rather than creating a separate label per ID
+- Records `http_requests_total` counter after the handler runs, using the final status code from `c.Writer.Status()`
+- Records `http_request_duration_seconds` histogram using `c.FullPath()` so dynamic routes like `/:id` are grouped correctly rather than creating a separate label per ID
 - Skips recording for the `/metrics` path itself to avoid self-referential metrics
 
 ---
@@ -1337,9 +1336,7 @@ router.Use(middleware.MetricsMiddleware())
 books.GET("/metrics", gin.WrapH(promhttp.Handler()))
 ```
 
-`gin.WrapH` wraps the standard `http.Handler` returned by `promhttp.Handler()` into
-a Gin-compatible handler. `promhttp.Handler()` serves all registered metrics in the
-Prometheus text exposition format.
+`gin.WrapH` wraps the standard `http.Handler` returned by `promhttp.Handler()` into a Gin-compatible handler. `promhttp.Handler()` serves all registered metrics in the Prometheus text exposition format.
 
 ---
 
@@ -1356,14 +1353,13 @@ metrics.BooksCreatedTotal.Inc()
 metrics.UsersRegisteredTotal.Inc()
 ```
 
-**`handler/order.go` — `CreateOrder` function:**
+**`handler/order.go` - `CreateOrder` function:**
 ```go
 metrics.OrdersCreatedTotal.Inc()
 metrics.OrdersRevenueTotal.Add(totalPrice)
 ```
 
-`totalPrice` is already computed earlier in the handler as
-`book.Price * float64(req.Quantity)` and is passed directly to the revenue counter.
+`totalPrice` is already computed earlier in the handler as `book.Price * float64(req.Quantity)` and is passed directly to the revenue counter.
 
 ---
 
@@ -1381,6 +1377,397 @@ Make a few requests to the API and re-check the metrics endpoint to confirm coun
 Expected output:
 
 ![metrics-endpoint-output](screenshots/metrics-endpoint-output.png)
+
+### Task 6.3: Configure ServiceMonitors
+
+#### Objective
+
+Create ServiceMonitor resources for each microservice so Prometheus automatically
+discovers and scrapes their metrics endpoints without manual configuration.
+
+#### How ServiceMonitors Work
+
+A ServiceMonitor is a CRD provided by the Prometheus Operator. When created, the
+Operator detects it and automatically adds the target to Prometheus's scrape
+configuration. No manual prometheus.yml editing is needed.
+
+For a ServiceMonitor to work, two conditions must be met:
+- The Kubernetes Service must have a named port.
+- The ServiceMonitor's `selector.matchLabels` must match labels on the Service
+
+#### Prerequisites
+
+- kube-prometheus-stack deployed in the `monitoring` namespace (Task 7.1)
+- Services in `book-ordering` namespace have a named port and an `app` label
+
+---
+
+#### Step 1 - Add Service Labels and Port Names in Helm Chart
+
+The default Service templates usually miss two things required for ServiceMonitor discovery:
+- No `app` label on the Service metadata
+- No port name (`<unset>`)
+
+Update each application Service template in the Helm chart to add both:
+```yaml
+metadata:
+  labels:
+    app: book-service               
+spec:
+  ports:
+    - name: http         
+```
+
+Apply the same change to user-service (port 8081) and order-service (port 8082), then upgrade the Helm release:
+```bash
+helm upgrade book-ordering ~/book-ordering --namespace book-ordering
+```
+
+Verify the port is now named and the label is present:
+```bash
+kubectl describe svc book-service -n book-ordering | grep -E "Labels|Port"
+kubectl describe svc user-service -n book-ordering | grep -E "Labels|Port"
+kubectl describe svc order-service -n book-ordering | grep -E "Labels|Port"
+```
+
+Expected output for each service:
+```
+Labels:   app=book-service
+          app.kubernetes.io/managed-by=Helm
+Port:     http  8080/TCP
+```
+
+---
+
+#### Step 2 - Create ServiceMonitor Manifests
+
+Create the manifests file on the jump server:
+```bash
+nano ~/servicemonitors.yaml
+```
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: book-service
+  namespace: monitoring
+  labels:
+    app: book-service
+spec:
+  namespaceSelector:
+    matchNames:
+      - book-ordering
+  selector:
+    matchLabels:
+      app: book-service
+  endpoints:
+    - port: http
+      path: /books/metrics
+      interval: 30s
+```
+And similarly add definition for `user-service` and `order-service` with their respected paths as defined in `kube/servicemonitors.yaml` file in the repository.
+
+Apply:
+```bash
+kubectl apply -f ~/servicemonitors.yaml
+```
+
+---
+
+#### Step 3 - Verify ServiceMonitors Created
+```bash
+kubectl get servicemonitor -n monitoring
+```
+
+Expected output:
+```
+NAME            AGE
+book-service    10s
+order-service   10s
+user-service    10s
+```
+
+---
+
+#### Step 4 - Verify in Prometheus UI
+
+Open `http://<jump-server-ip>:9090` → Status → Targets.
+
+Wait 30-60 seconds for Prometheus to pick up the new targets. All three services should appear with state `UP`:
+```
+monitoring/book-service/0    UP
+monitoring/user-service/0    UP
+monitoring/order-service/0   UP
+```
+
+Verify metrics are being collected by running a query in the Graph tab:
+```promql
+http_requests_total
+```
+
+Filter by service:
+```promql
+http_requests_total{job="book-service"}
+```
+
+Check business metrics:
+```promql
+books_created_total
+orders_created_total
+users_registered_total
+```
+
+![service-monitor.png](screenshots/service-monitor.png)
+
+---
+
+### Task 6.4: Deploy Grafana via Operator
+
+#### Objective
+
+Verify Grafana is functioning correctly after the kube-prometheus-stack deployment and create an application-specific dashboard for the book-ordering services.
+
+#### Prerequisites
+
+- kube-prometheus-stack deployed (Task 6.1)
+- ServiceMonitors scraping all three services (Task 6.3)
+- Grafana accessible at `http://<jump-server-ip>:3000`
+
+---
+
+#### Verification
+
+**Data source**
+
+Go to Connections → Data sources → Prometheus → click **Test**. Should return a green "Data source is working" confirmation. The Prometheus data source is auto-configured by kube-prometheus-stack - no manual setup required.
+
+**Built-in dashboards**
+
+Go to Dashboards. Pre-built Kubernetes dashboards are available under the default folder. Useful ones for this project:
+
+| Dashboard | What it shows |
+|---|---|
+| Kubernetes / Compute Resources / Namespace (Pods) | CPU and memory per pod in book-ordering namespace |
+| Node Exporter / Nodes | Host-level CPU, memory, and disk for cluster nodes |
+
+---
+
+#### Application Dashboard
+
+A custom dashboard is created for the book-ordering services to visualize application metrics exposed by the `/metrics` endpoints implemented in Task 7.5.
+
+Navigate to Dashboards → New → New Dashboard.
+
+---
+
+##### Panel 1 - Request Rate per Service
+
+Visualization: **Time series**
+```promql
+rate(http_requests_total[5m])
+```
+
+Legend: `{{job}} {{method}} {{path}} {{status}}`
+
+Shows the per-second request rate broken down by service, HTTP method, route, and response code. Each combination appears as a separate line.
+
+---
+
+##### Panel 2 - Error Rate
+
+Visualization: **Time series**
+```promql
+rate(http_requests_total{status=~"4..|5.."}[5m])
+```
+
+Legend: `{{job}} {{path}} {{status}}`
+
+Filters `http_requests_total` to only 4xx and 5xx responses. Useful for spotting error spikes after deployments or bad requests.
+
+---
+
+##### Panel 3 - Request Duration p99
+
+Visualization: **Time series** - Unit: **seconds (s)**
+```promql
+histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+Legend: `{{job}} {{method}} {{path}}`
+
+Shows the 99th percentile request duration per route. `c.FullPath()` is used in the middleware so dynamic routes like `/:id` are grouped correctly rather than creating a separate series per ID value.
+
+---
+
+##### Panel 4 - Business Metrics
+
+Visualization: **Stat** - Show: All values
+
+Three queries on one panel:
+
+| Query | Legend |
+|---|---|
+| `books_created_total` | Books Created |
+| `orders_created_total` | Orders Created |
+| `users_registered_total` | Users Registered |
+
+Shows running totals for each business event as stat panels side by side.
+
+---
+
+##### Panel 5 - In-flight Requests
+
+Visualization: **Gauge** - Min: 0, Max: 50
+```promql
+http_requests_in_flight
+```
+
+Legend: `{{job}}`
+
+Shows how many requests are actively being processed per service at any given moment. The gauge decrements on request completion so spikes indicate slow handlers or traffic bursts.
+
+---
+
+#### Dashboard Settings
+
+- Name: `Book Ordering Services`
+- Folder: `General`
+- Time range: Last 15 minutes
+- Auto-refresh: Auto
+
+![dashboard-visualization](screenshots/dashboard-visualization.png)
+
+---
+
+### Task 6.5: Implement PrometheusRules for Alerting
+
+#### Objective
+
+Configure alerting rules using PrometheusRule CRDs and route firing alerts to a Slack channel via Alertmanager.
+
+#### Prerequisites
+
+- kube-prometheus-stack deployed and all pods running (Task 7.1)
+- ServiceMonitors scraping all three services (Task 7.2)
+- Slack workspace with a private channel `#book-ordering-alerts`
+- Slack incoming webhook URL
+
+#### Getting the Slack Webhook URL
+
+1. Go to `https://api.slack.com/apps`
+2. Click **Create New App** → **From scratch**
+3. Name the app, select your workspace → **Create App**
+4. On the left sidebar click **Incoming Webhooks** → toggle to ON
+5. Click **Add New Webhook to Workspace**
+6. Select `#book-ordering-alerts` → **Allow**
+7. Copy the webhook URL - format: `https://hooks.slack.com/services/T.../B.../xxx`
+
+---
+
+#### Step 1 - Configure Alertmanager
+
+The default Alertmanager config routes all alerts to a null receiver. Update it to
+add a Slack receiver and route `book-ordering` namespace alerts to it.
+
+Create the config file:
+```bash
+nano ~/alertmanager-config.yaml
+```
+
+Add the configuration defined in the `kube/alertmanager-config.yaml` file in the repository.
+
+Apply by patching the Alertmanager secret directly. 
+```bash
+kubectl create secret generic alertmanager-kube-prometheus-stack-alertmanager \
+  --from-file=alertmanager.yaml=$HOME/alertmanager-config.yaml \
+  --namespace monitoring \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Restart Alertmanager to pick up the new config:
+```bash
+kubectl rollout restart statefulset/alertmanager-kube-prometheus-stack-alertmanager -n monitoring
+```
+
+Verify the config loaded - `slack_api_url: <secret>` confirms the webhook URL is stored and masked correctly:
+```bash
+kubectl exec -n monitoring alertmanager-kube-prometheus-stack-alertmanager-0 \
+  -- wget -qO- http://localhost:9093/api/v2/status | grep -i slack
+```
+
+---
+
+#### Step 2 - Create PrometheusRules
+
+Create the rules manifest:
+```bash
+nano ~/prometheusrules.yaml
+```
+
+Add the configuration defined in the `prometheusrules.yaml` file in the repository.
+
+Apply:
+```bash
+kubectl apply -f ~/prometheusrules.yaml
+```
+
+Verify the rule was picked up:
+```bash
+kubectl get prometheusrule -n monitoring
+```
+
+---
+
+#### Step 3 - Verify Rules in Prometheus UI
+
+Open `http://<jump-server-ip>:9090` → **Alerts** tab.
+
+You should see `book-ordering.rules` with all six alerts listed as `inactive`. Inactive means the conditions are not currently met - this is the correct state when everything is running normally.
+```
+book-ordering.rules
+  ServiceDown          inactive
+  HighErrorRate        inactive
+  HighLatency          inactive
+  HighInFlightRequests inactive
+  PodMemoryHigh        inactive
+  PodCPUHigh           inactive
+```
+
+---
+
+#### Step 4 - Test Alert Triggering
+
+Trigger `HighErrorRate` by sending a burst of requests to a non-existent endpoint:
+```bash
+for i in $(seq 1 50); do curl -s http://book-ordering.dynv6.net/orders/doesnotexist; done
+```
+
+Watch the Alerts tab - state progression takes about 2-3 minutes:
+```
+inactive → pending → firing
+```
+
+- `pending` means the condition is met but the `for: 2m` duration has not elapsed yet
+- `firing` means the alert was sent to Alertmanager and routed to Slack
+
+Once firing, check `#book-ordering-alerts` in Slack for the notification. When the error rate drops back below the threshold, Alertmanager sends a resolved notification to the same channel.
+
+![slack-alert.png](screenshots/slack-alert.png)
+
+---
+
+#### Alert Reference
+
+| Alert | Condition | Severity | For |
+|---|---|---|---|
+| ServiceDown | No requests recorded for 2 minutes | critical | 2m |
+| HighErrorRate | More than 10% of requests are 4xx or 5xx | warning | 2m |
+| HighLatency | p99 request duration above 1 second | warning | 2m |
+| HighInFlightRequests | More than 20 concurrent requests | warning | 1m |
+| PodMemoryHigh | Pod memory above 80% of limit | warning | 5m |
+| PodCPUHigh | Pod CPU above 80% of limit | warning | 5m |
+
+---
 
 ## API Testing
 
@@ -1413,7 +1800,7 @@ Content-Type: application/json
 
 #### Step 3: Login and Copy Token
 
-Login using the registered credentials. Copy the token value from the response — it is required for all order endpoints.
+Login using the registered credentials. Copy the token value from the response - it is required for all order endpoints.
 
 ```
 POST http://book-ordering.dynv6.net/login
@@ -1542,12 +1929,10 @@ helm rollback book-ordering 1
 
 ## Known Limitations
 
-1. Services restart once or twice on initial deployment while waiting for PostgreSQL to finish initialising. Kubernetes has no native `depends_on` mechanism. Adding init containers that poll the database port before the main container starts would eliminate these restarts.
+1. Services restart once or twice on initial deployment while waiting for PostgreSQL to finish initialising. Kubernetes has no native `depends_on` mechanism.
 
-2. Database schema is managed in-process via `CREATE TABLE IF NOT EXISTS` on startup. There is no versioned migration system. Schema changes in future iterations require careful handling to avoid data loss on existing deployments.
+2. Database schema is managed in-process via `CREATE TABLE IF NOT EXISTS` on startup. There is no versioned migration system.
 
-3. Secrets are base64-encoded values stored in the Helm chart. Base64 is not encryption. For production use, secrets should be managed using a tool such as Sealed Secrets or an external secrets manager, and secret values should never be committed to the repository.
+3. Secrets are base64-encoded values stored in the Helm chart. Base64 is not encryption.
 
-4. Stock is not decremented when an order is placed. The order creation flow checks that sufficient stock exists but does not update the `stock` field in the books table after the order is confirmed. A subsequent order for the same book will succeed even if the previously ordered quantity would have exhausted the available stock.
-
-5. The metrics endpoint on all three services returns a static placeholder string. Integration with `prometheus/client_golang` is required before the endpoint exposes real data.
+4. Stock is not decremented when an order is placed. The order creation flow checks that sufficient stock exists but does not update the `stock` field in the books table after the order is confirmed. 

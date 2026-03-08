@@ -49,7 +49,6 @@ func RequireAuth(c *gin.Context) {
 	)
 
 	if err != nil || !token.Valid {
-		log.Println("Token error:", err) // temporary
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 		c.Abort()
 		return

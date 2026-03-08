@@ -1,0 +1,89 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: book-ordering-alerts
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: book-ordering.rules
+    interval: 30s
+    rules:
+
+    - alert: ServiceDown
+      expr: absent(rate(http_requests_total[2m]))
+      for: 2m
+      labels:
+        severity: critical
+        service: book-ordering
+      annotations:
+        summary: "service is down"
+        description: "no http requests have been recorded for 2 minutes, a service may be down"
+
+    - alert: HighErrorRate
+      expr: |
+        sum(rate(http_requests_total{status=~"4..|5.."}[5m])) by (job)
+        /
+        sum(rate(http_requests_total[5m])) by (job)
+        > 0.1
+      for: 2m
+      labels:
+        severity: warning
+        service: book-ordering
+      annotations:
+        summary: "high error rate on {{ $labels.job }}"
+        description: "{{ $labels.job }} has more than 10% error rate for the last 2 minutes, current value: {{ $value | humanizePercentage }}"
+
+    - alert: HighLatency
+      expr: |
+        histogram_quantile(0.99,
+          rate(http_request_duration_seconds_bucket[5m])
+        ) > 1
+      for: 2m
+      labels:
+        severity: warning
+        service: book-ordering
+      annotations:
+        summary: "high latency on {{ $labels.job }}"
+        description: "{{ $labels.job }} p99 latency is above 1 second. Current value: {{ $value }}s"
+
+    - alert: HighInFlightRequests
+      expr: http_requests_in_flight > 20
+      for: 1m
+      labels:
+        severity: warning
+        service: book-ordering
+      annotations:
+        summary: "high in-flight requests on {{ $labels.job }}"
+        description: "{{ $labels.job }} has more than 20 concurrent requests, current value: {{ $value }}"
+
+    - alert: PodMemoryHigh
+      expr: |
+        container_memory_working_set_bytes{namespace="book-ordering", container!=""}
+        /
+        container_spec_memory_limit_bytes{namespace="book-ordering", container!=""}
+        > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        service: book-ordering
+      annotations:
+        summary: "high memory usage in {{ $labels.pod }}"
+        description: "pod {{ $labels.pod }} memory usage is above 80% of its limi, current value: {{ $value | humanizePercentage }}"
+
+    - alert: PodCPUHigh
+      expr: |
+        rate(container_cpu_usage_seconds_total{namespace="book-ordering", container!=""}[5m])
+        /
+        container_spec_cpu_quota{namespace="book-ordering", container!=""}
+        * container_spec_cpu_period{namespace="book-ordering", container!=""}
+        > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        service: book-ordering
+      annotations:
+        summary: "high CPU usage in {{ $labels.pod }}"
+        description: "pod {{ $labels.pod }} CPU usage is above 80% of its limit, current value: {{ $value | humanizePercentage }}"
