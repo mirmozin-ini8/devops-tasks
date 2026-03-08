@@ -1,1 +1,4 @@
 ./task3-files/book-service/.env
+./task3-files/user-service/.env
+./task3-files/order-service/.env
+.secrets
