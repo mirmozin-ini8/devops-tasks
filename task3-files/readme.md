@@ -658,15 +658,7 @@ After deploying the Helm chart, confirm the Ingress resource has been assigned a
 kubectl get ingress -n book-ordering
 ```
 
-The ADDRESS column should show the MetalLB-assigned IP. Test routing through the domain:
-
-```bash
-curl http://book-ordering.dynv6.net/books/health
-curl http://book-ordering.dynv6.net/users/health
-curl http://book-ordering.dynv6.net/orders/health
-```
-
-Each request should return a `200` response from the correct service.
+The ADDRESS column should show the MetalLB-assigned IP.
 
 ---
 
@@ -749,9 +741,12 @@ kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 &
 Test access using the Host header directly, or via the domain name:
 
 ```bash
-curl -H "Host: book-ordering.dynv6.net" http://localhost:8080/books/health
 curl http://book-ordering.dynv6.net/books/health
+curl http://book-ordering.dynv6.net/users/health
+curl http://book-ordering.dynv6.net/orders/health
 ```
+
+Each request should return a `200` response from the correct service.
 
 #### Step 5: Upgrade After Changes
 
