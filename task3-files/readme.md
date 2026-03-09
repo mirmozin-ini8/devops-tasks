@@ -853,133 +853,18 @@ Create the directory structure inside the repository:
 ```bash
 .github/
   workflows/
-    deploy.yml
+    task3-cicd.yaml
 ```
 
-The complete workflow file:
+The complete workflow file is present in `.github/workflows` directory in the repository.
 
-```yaml
-name: book-ordering-cicd
-
-on:
-  push: 
-    branches: [main]
-    paths:
-      - 'task3-files/**'
-  workflow_dispatch:
-
-jobs: 
-  test-and-lint:
-    runs-on: ubuntu-latest
-    strategy: 
-      matrix:
-        service: [book-service, user-service, order-service]
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: set up go
-        uses: actions/setup-go@v5
-        with:
-            go-version: '1.26.0'
-            cache: false
-
-      - name: cache go modules
-        uses: actions/cache@v4
-        with:
-            path: |
-                ~/go/pkg/mod
-                ~/.cache/go-build
-            key: ${{ runner.os }}-go-${{ matrix.service }}-${{ hashFiles(format('task3-files/{0}/go.sum', matrix.service)) }}
-            restore-keys: |
-                ${{ runner.os }}-go-${{ matrix.service }}-
-
-      - name: lint and test
-        working-directory: ./task3-files/${{ matrix.service }} 
-        run: |
-          go vet ./...
-          go test -v ./...
-
-  build-and-push:
-    needs: test-and-lint
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [book-service, user-service, order-service]
-    outputs:
-      image-tag: ${{ steps.vars.outputs.sha }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: set short SHA
-        id: vars
-        run: echo "sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
-
-      - name: login to dockerhub
-        uses: docker/login-action@v3
-        with: 
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: ./task3-files/${{ matrix.service }}
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ steps.vars.outputs.sha }}
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    env: 
-      TAG: ${{ needs.build-and-push.outputs.image-tag }}
-      DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: setup ssh agent
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.JUMP_SERVER_SSH_KEY }}
-
-      - name: add jump server to known hosts
-        run: ssh-keyscan -H ${{ secrets.JUMP_SERVER_IP }} >> ~/.ssh/known_hosts
-
-      - name: copy helm chart to jump server
-        run: |
-          scp -r ./task3-files/book-ordering ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }}:~/
-
-      - name: deploy via helm
-        run: |
-          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-            "helm upgrade --install book-ordering ~/book-ordering \
-            --namespace book-ordering \
-            --create-namespace \
-            --set images.bookService.tag=${TAG} \
-            --set images.userService.tag=${TAG} \
-            --set images.orderService.tag=${TAG} \
-            --rollback-on-failure \
-            --wait"
-
-      - name: verify rollout
-        run: |
-          ssh ${{ secrets.JUMP_SERVER_USER }}@${{ secrets.JUMP_SERVER_IP }} \
-            "kubectl rollout status deployment/book-service -n book-ordering && \
-             kubectl rollout status deployment/order-service -n book-ordering && \
-             kubectl rollout status deployment/user-service -n book-ordering"
-
-      - name: notification
-        if: always()
-        run: echo "deployment of version ${TAG} finished with status ${{ job.status }}"
-```
 
 The pipeline SSHes into the Jump Server to run all Helm and kubectl commands because GitHub Actions runners are cloud-hosted and cannot reach the private cluster directly. The Jump Server already has kubectl and Helm configured with access to the cluster.
 
 #### Step 3: Push the Workflow File
 
 ```bash
-git add .github/workflows/deploy.yml
+git add .github/workflows/task3-cicd.yaml
 git commit -m "add cicd pipeline"
 git push origin main
 ```
@@ -1055,61 +940,8 @@ kubectl create secret generic grafana-admin-secret -n monitoring \
 ```bash
 nano ~/kube-prometheus-stack-values.yaml
 ```
-```yaml
-prometheus:
-  prometheusSpec:
-    retention: 15d
-    retentionSize: "9GB"
-    resources:
-      requests:
-        cpu: 200m
-        memory: 400Mi
-      limits:
-        cpu: 500m
-        memory: 800Mi
-    storageSpec:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: local-path
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 10Gi
-    serviceMonitorSelectorNilUsesHelmValues: false
-    serviceMonitorNamespaceSelector: {}
-    serviceMonitorSelector: {}
-    ruleSelectorNilUsesHelmValues: false
-    ruleNamespaceSelector: {}
-    ruleSelector: {}
 
-grafana:
-  enabled: true
-  admin:
-    existingSecret: grafana-admin-secret
-    userKey: admin-user
-    passwordKey: admin-password
-  service:
-    type: ClusterIP
-
-alertmanager:
-  alertmanagerSpec:
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 100m
-        memory: 128Mi
-
-kubeControllerManager:
-  enabled: false
-kubeScheduler:
-  enabled: false
-kubeEtcd:
-  enabled: false
-kubeProxy:
-  enabled: false
-```
+Add the configuration provided in the `/kube/kube-prometheus-stack-values.yaml` file in the repository.
 
 Key settings explained:
 
@@ -1192,24 +1024,9 @@ WantedBy=multi-user.target
 Create the Grafana service:
 ```bash
 sudo nano /etc/systemd/system/grafana-portforward.service
-```
-```ini
-[Unit]
-Description=Port-forward for Grafana UI (3000)
-After=network-online.target k8s-portforward.service
-Wants=network-online.target
+``` 
 
-[Service]
-Type=simple
-User=root
-Environment=KUBECONFIG=/root/.kube/config
-ExecStart=/usr/local/bin/kubectl port-forward svc/kube-prometheus-stack-grafana -n monitoring 3000:80 --address 0.0.0.0
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
+Add the similar service configuration for `svc/kube-prometheus-stack-grafana` for ports `3000:80`.
 
 Enable and start both:
 ```bash
@@ -1243,7 +1060,7 @@ http://<jump-server-ip>:3000
 
 In Prometheus, go to Status > Targets to confirm Kubernetes cluster targets are being scraped. In Grafana, go to Dashboards to see the pre-built Kubernetes dashboards, and Connections > Data sources to confirm Prometheus is configured as a data source.
 
-> Opening these ports exposes Prometheus and Grafana publicly. Prometheus has no authentication by default, anyone with the URL can query the metrics. For production use, close these ports and use SSH tunnels or an authenticated reverse proxy instead.
+> Opening these ports exposes Prometheus and Grafana publicly. Prometheus has no authentication by default, anyone with the URL can query the metrics.
 
 ---
 
@@ -1257,16 +1074,6 @@ Add real Prometheus-compatible metrics endpoints to all three services. Expose H
 
 - `prometheus/client_golang` already present in `go.mod` for all three services
 - Services deployed and health endpoints verified working
-
-#### Dependencies
-
-No new dependencies required. `github.com/prometheus/client_golang v1.23.2` was already present in `go.mod`. The following packages from it are used:
-
-```
-github.com/prometheus/client_golang/prometheus
-github.com/prometheus/client_golang/prometheus/promauto
-github.com/prometheus/client_golang/prometheus/promhttp
-```
 
 ---
 
@@ -1377,22 +1184,15 @@ Expected output:
 
 #### Objective
 
-Create ServiceMonitor resources for each microservice so Prometheus automatically
-discovers and scrapes their metrics endpoints without manual configuration.
+Create ServiceMonitor resources for each microservice so Prometheus automatically discovers and scrapes their metrics endpoints without manual configuration.
 
 #### How ServiceMonitors Work
 
-A ServiceMonitor is a CRD provided by the Prometheus Operator. When created, the
-Operator detects it and automatically adds the target to Prometheus's scrape
-configuration. No manual prometheus.yml editing is needed.
-
-For a ServiceMonitor to work, two conditions must be met:
-- The Kubernetes Service must have a named port.
-- The ServiceMonitor's `selector.matchLabels` must match labels on the Service
+A ServiceMonitor is a CRD provided by the Prometheus Operator. When created, the Operator detects it and automatically adds the target to Prometheus's scrape configuration. No manual prometheus.yml editing is needed.
 
 #### Prerequisites
 
-- kube-prometheus-stack deployed in the `monitoring` namespace (Task 7.1)
+- kube-prometheus-stack deployed in the `monitoring` namespace (Task 6.1)
 - Services in `book-ordering` namespace have a named port and an `app` label
 
 ---
@@ -1549,7 +1349,7 @@ Go to Dashboards. Pre-built Kubernetes dashboards are available under the defaul
 
 #### Application Dashboard
 
-A custom dashboard is created for the book-ordering services to visualize application metrics exposed by the `/metrics` endpoints implemented in Task 7.5.
+A custom dashboard is created for the book-ordering services to visualize application metrics exposed by the `/metrics`.
 
 Navigate to Dashboards → New → New Dashboard.
 
@@ -1642,9 +1442,9 @@ Configure alerting rules using PrometheusRule CRDs and route firing alerts to a 
 
 #### Prerequisites
 
-- kube-prometheus-stack deployed and all pods running (Task 7.1)
-- ServiceMonitors scraping all three services (Task 7.2)
-- Slack workspace with a private channel `#book-ordering-alerts`
+- kube-prometheus-stack deployed and all pods running (Task 6.1)
+- ServiceMonitors scraping all three services (Task 6.3)
+- Slack workspace with a private channel `<#book-ordering-alerts>`
 - Slack incoming webhook URL
 
 #### Getting the Slack Webhook URL
