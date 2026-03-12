@@ -1590,6 +1590,9 @@ Tests the SQL logic in isolation. sqlmock replaces `database.DB` with a fake `*s
 | `TestGetUserByUsername` | Found with password_hash, not found |
 | `TestCreateUser` | Successful insert |
 | `TestUpdateUser` | Username updated, email updated, unchanged field preserved, not found |
+| `TestCreateOrder` | Successful insert, RETURNING values scanned correctly |
+| `TestGetOrderByID` | Found, not found |
+| `TestGetOrdersByUserID` | Returns multiple rows, returns empty slice |
 
 #### Handler Layer (`<service>_handler_test.go`)
 
@@ -1606,6 +1609,9 @@ Tests the full HTTP layer - request parsing, response codes, JSON output, and in
 | `TestLoginHandler` | 200 with JWT token, 401 on wrong password, 401 on unknown user, 400 on missing fields |
 | `TestGetUserHandler` | 200 with correct JSON, 404, 400 on invalid ID |
 | `TestUpdateUserHandler` | 200 with real JWT, 401 with no token, 403 with wrong user JWT, 404, 400 on invalid ID |
+| `TestCreateOrderHandler` | 201 with created order, 400 on insufficient stock, 404 on book not found, 404 on user not found, 400 on missing fields, 401 with no token |
+| `TestGetOrderByIDHandler` | 200 with correct JSON, 404, 400 on invalid ID |
+| `TestGetOrdersByUserIDHandler` | 200 with correct JSON, 403 with wrong use
 
 ### Running the Tests
 
@@ -1635,9 +1641,11 @@ go test .\<service-test> -v -run <test-name>/<subtest-name>
 
 Examples:
 ```bash
+go test .\book-service-test\ -v -run TestDeleteBook/NotFound
+
 go test .\user-service-test\ -v -run TestGetUserByUsername
 
-go test .\book-service-test\ -v -run TestDeleteBook/NotFound
+go test .\order-service-test\ -v -run TestCreateOrderHandler/InsufficientStock
 ```
 
 Expected Outputs:
@@ -1663,6 +1671,25 @@ ok      unit_test/user-service-test     0.266s
     --- PASS: TestDeleteBook/NotFound (0.00s)
 PASS
 ok      unit_test/book-service-test     0.252s
+```
+
+```bash
+=== RUN   TestCreateOrderHandler
+=== RUN   TestCreateOrderHandler/Success
+=== RUN   TestCreateOrderHandler/InsufficientStock
+=== RUN   TestCreateOrderHandler/BookNotFound
+=== RUN   TestCreateOrderHandler/UserNotFound
+=== RUN   TestCreateOrderHandler/MissingFields
+=== RUN   TestCreateOrderHandler/NoToken
+--- PASS: TestCreateOrderHandler (0.02s)
+    --- PASS: TestCreateOrderHandler/Success (0.00s)
+    --- PASS: TestCreateOrderHandler/InsufficientStock (0.00s)
+    --- PASS: TestCreateOrderHandler/BookNotFound (0.00s)
+    --- PASS: TestCreateOrderHandler/UserNotFound (0.00s)
+    --- PASS: TestCreateOrderHandler/MissingFields (0.00s)
+    --- PASS: TestCreateOrderHandler/NoToken (0.00s)
+PASS
+ok      unit_test/order-service-test    0.282s
 ```
 
 ---
