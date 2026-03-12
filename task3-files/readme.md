@@ -14,6 +14,7 @@ A microservices-based book ordering application built with Go (Gin), deployed on
 - [Component 4: Kubernetes Deployment](#component-4-kubernetes-deployment)
 - [Component 5: CI/CD Pipeline](#component-5-cicd-pipeline)
 - [Component 6: Monitoring](#component-6-monitoring)
+- [Component 7: Unit Testing](#component-7-unit-testing)
 - [API Testing](#api-testing)
 - [Debugging Reference](#debugging-reference)
 - [Known Limitations](#known-limitations)
@@ -1561,6 +1562,108 @@ Once firing, check `#book-ordering-alerts` in Slack for the notification. When t
 | HighInFlightRequests | More than 20 concurrent requests | warning | 1m |
 | PodMemoryHigh | Pod memory above 80% of limit | warning | 5m |
 | PodCPUHigh | Pod CPU above 80% of limit | warning | 5m |
+
+---
+
+## Component 7: Unit Testing
+
+### Overview
+
+Unit tests cover two layers for each service - the repository layer and the handler layer. Tests run without a real database or HTTP server by using two test libraries:
+
+- **sqlmock** - intercepts all SQL queries and returns fake rows, no database connection required
+- **testify/assert** - readable assertions like `assert.Equal`, `assert.Nil`, `assert.NoError`
+- **httptest** - Go standard library package that simulates HTTP requests and captures responses without starting a real server
+
+#### Repository Layer (`<service>_repository_test.go`)
+
+Tests the SQL logic in isolation. sqlmock replaces `database.DB` with a fake `*sql.DB` that intercepts queries and returns controlled data.
+
+| Test | Cases Covered |
+|---|---|
+| `TestGetAllBooks` | Returns multiple rows, returns empty slice |
+| `TestGetBookByID` | Found, not found |
+| `TestCreateBook` | Successful insert, RETURNING values scanned correctly |
+| `TestUpdateBook` | Title updated, unchanged fields preserved, not found |
+| `TestDeleteBook` | Row deleted, row not found (0 rows affected) |
+| `TestGetUserByID` | Found, not found |
+| `TestGetUserByUsername` | Found with password_hash, not found |
+| `TestCreateUser` | Successful insert |
+| `TestUpdateUser` | Username updated, email updated, unchanged field preserved, not found |
+
+#### Handler Layer (`<service>_handler_test.go`)
+
+Tests the full HTTP layer - request parsing, response codes, JSON output, and input validation. Each test creates a real Gin router with `httptest.NewRequest` and `httptest.NewRecorder` so requests go through the full Gin stack.
+
+| Test | Cases Covered |
+|---|---|
+| `TestGetAllBooksHandler` | Returns JSON array, empty array |
+| `TestGetBookByIDHandler` | 200 with correct JSON, 404, 400 on invalid ID |
+| `TestCreateBookHandler` | 201 with created book, 400 on missing fields, 400 on negative price |
+| `TestUpdateBookHandler` | 200 with updated fields, 404, 400 on invalid ID |
+| `TestDeleteBookHandler` | 200, 404, 400 on invalid ID |
+| `TestRegisterHandler` | 201 with no password_hash in response, 400 on missing fields, 400 on short password |
+| `TestLoginHandler` | 200 with JWT token, 401 on wrong password, 401 on unknown user, 400 on missing fields |
+| `TestGetUserHandler` | 200 with correct JSON, 404, 400 on invalid ID |
+| `TestUpdateUserHandler` | 200 with real JWT, 401 with no token, 403 with wrong user JWT, 404, 400 on invalid ID |
+
+### Running the Tests
+
+The test files are present in the `unit-test/<service>-test/` directories.
+
+Add dependencies if not already present:
+```bash
+go get github.com/DATA-DOG/go-sqlmock
+go get github.com/stretchr/testify/assert
+```
+
+Run all tests:
+```bash
+cd unit-test
+go test ./... -v
+```
+
+Run a specific test:
+```bash
+go test .\<service-test> -v -run <test-name>
+```
+
+Run a specific subtest:
+```bash
+go test .\<service-test> -v -run <test-name>/<subtest-name>
+```
+
+Examples:
+```bash
+go test .\user-service-test\ -v -run TestGetUserByUsername
+
+go test .\book-service-test\ -v -run TestDeleteBook/NotFound
+```
+
+Expected Outputs:
+```bash
+=== RUN   TestGetUserByUsername
+=== RUN   TestGetUserByUsername/Success
+=== RUN   TestGetUserByUsername/NotFound
+--- PASS: TestGetUserByUsername (0.00s)
+    --- PASS: TestGetUserByUsername/Success (0.00s)
+    --- PASS: TestGetUserByUsername/NotFound (0.00s)
+PASS
+ok      unit_test/user-service-test     0.266s
+```
+
+```bash
+=== RUN   TestDeleteBookHandler
+=== RUN   TestDeleteBookHandler/NotFound
+--- PASS: TestDeleteBookHandler (0.00s)
+    --- PASS: TestDeleteBookHandler/NotFound (0.00s)
+=== RUN   TestDeleteBook
+=== RUN   TestDeleteBook/NotFound
+--- PASS: TestDeleteBook (0.00s)
+    --- PASS: TestDeleteBook/NotFound (0.00s)
+PASS
+ok      unit_test/book-service-test     0.252s
+```
 
 ---
 
